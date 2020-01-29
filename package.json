@@ -1,6 +1,7 @@
 {
-  "name": "nexus-service",
+  "name": "@nexus-switchboard/nexus-mod-service",
   "version": "0.3.6",
+  "keywords": ["nexus-module"],
   "description": "Provides a cross-tool ticket management interface.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
