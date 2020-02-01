@@ -1,7 +1,9 @@
 {
   "name": "@nexus-switchboard/nexus-mod-service",
   "version": "0.3.6",
-  "keywords": ["nexus-module"],
+  "keywords": [
+    "nexus-module"
+  ],
   "description": "Provides a cross-tool ticket management interface.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,8 +23,8 @@
     "debug": "^4.1.1",
     "lodash": "^4.17.15",
     "@nexus-switchboard/nexus-conn-jira": "^0.0.2",
-    "@nexus-switchboard/nexus-conn-slack": "^0.1.0",
-    "@nexus-switchboard/nexus-extend": "^0.4.4"
+    "@nexus-switchboard/nexus-conn-slack": "^0.1",
+    "@nexus-switchboard/nexus-extend": "^0.4"
   },
   "devDependencies": {
     "@types/node": "^12.7.5",
