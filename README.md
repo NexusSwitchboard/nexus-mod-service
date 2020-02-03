@@ -1,4 +1,4 @@
-# Service
+# Service - Nexus Module
 The Service module provides functionality that provides ways of interacting with a service team through existing tools
 
 # Submit Service Request
