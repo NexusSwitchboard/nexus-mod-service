@@ -14,7 +14,7 @@ const handlePostedThreadMessage = async (conn: SlackConnection,
     const config = moduleInstance.getActiveConfig();
 
     // ignore any message that is posted by a bot.
-    if (!ServiceRequest.isBotMessage(slackParams, config.SLACK_BOT_ID)) {
+    if (!ServiceRequest.isBotMessage(slackParams.message || slackParams, config.SLACK_BOT_ID)) {
 
         // then see if this is associated with a request ticket.
         const channel = findProperty(slackParams, "channel");

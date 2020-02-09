@@ -4,7 +4,7 @@ import _ from "lodash";
 
 import {JiraConnection, JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection, SlackMessage, SlackPayload, SlackWebApiResponse} from "@nexus-switchboard/nexus-conn-slack";
-import {findProperty, hasOwnProperties, NexusModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {findProperty, getNestedVal, hasOwnProperties, NexusModuleConfig} from "@nexus-switchboard/nexus-extend";
 
 import {dlgServiceRequest, msgRequestSubmitted} from "./slack/blocks";
 import moduleInstance from "..";
@@ -148,7 +148,12 @@ export default class ServiceRequest {
                 "valid 'claimer' user loaded");
 
             // Now verify that the ticket is actually in a state where it can be claimed.
-            if (this.jiraTicket.fields.status.name.toLowerCase() !== "to do") {
+            const statusCategory:string = getNestedVal(this.jiraTicket, "fields.status.statusCategory.name");
+            if (!statusCategory) {
+                logger("Warning: Unable to determine status category of the ticket.  This could be because the jira ticket object json is malformed.");
+            }
+
+            if (statusCategory && statusCategory.toLowerCase() !== "to do") {
                 await this.postRequestActionError("You can only claim tickets that haven't been started yet.");
 
             } else {
