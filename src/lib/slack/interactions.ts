@@ -175,7 +175,7 @@ export const interactions: ISlackInteractionHandler[] = [{
             const messageId = SlackMessageId.fromEncodedId(metaData);
             const message = await _conn.getMessageFromChannelAndTs(messageId.channel, messageId.ts);
 
-            if (ServiceRequest.isBotMessage(message, modConfig.SLACK_BOT_ID)) {
+            if (ServiceRequest.isBotMessage(message, modConfig.SLACK_BOT_USERNAME)) {
                 _conn.apiAsBot.chat.delete({
                     channel: messageId.channel,
                     ts: messageId.ts,
