@@ -1,20 +1,76 @@
 import {View} from "@slack/web-api";
 import {IRequestParams} from "../request";
+import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
+import moduleInstance, {logger} from "../..";
 
-export const msgRequestSubmitted = (userId: string, message: string, status: string) => {
+export interface ITopLevelMessageInput {
+    status: string,
+    jiraTicket?: JiraTicket,
+    slackUserId?: string,
+    message?: string,
+    errorMsg?: string
+}
+
+export const msgRequestSubmitted = (info: ITopLevelMessageInput) => {
+
+    if (!info.jiraTicket && !info.message) {
+        logger("An attempt to change the top level message was made but there was no message or ticket given");
+        return undefined;
+    }
+
+    const config = moduleInstance.getActiveConfig();
+
+    const statusToIconMap: Record<string,any> = {
+        "communicating": {
+            icon: config.REQUEST_COMMS_SLACK_ICON || ":zap:",
+            text: `*Communicating with Jira*`
+        },
+        "error": {
+            icon: config.REQUEST_ERROR_SLACK_ICON || ":x:",
+            text: `*Error Occurred in Infrabot*`
+        },
+        "completed": {
+            icon: config.REQUEST_COMPLETED_SLACK_ICON || ":white_circle:",
+            text: `*Completed* by <@${info.slackUserId}>`
+        },
+        "submitting": {
+            icon: config.REQUEST_SUBMITTING_SLACK_ICON || ":clock1:",
+            text: `<@${info.slackUserId}> is *Entering Request Details*`
+        },
+        "submitted": {
+            icon: config.REQUEST_SUBMITTED_SLACK_ICON || ":black_circle:",
+            text: `*Submitted* by <@${info.slackUserId}>`
+        },
+        "cancelled": {
+            icon: config.REQUEST_CANCELLED_SLACK_ICON || ":red_circle:",
+            text: `*Cancelled* by <@${info.slackUserId}>`
+        },
+        "claimed": {
+            icon: config.REQUEST_CLAIMED_SLACK_ICON || ":large_blue_circle",
+            text: `*Claimed* by <@${info.slackUserId}>`
+        },
+        "_default": {
+            icon: ":red_circle",
+            text: `*Last Action Performed* by <@${info.slackUserId}`
+        }
+    };
+
+    const props = statusToIconMap.hasOwnProperty(info.status) ? statusToIconMap[info.status] : statusToIconMap._default;
+
+    let textMsg:string;
+    if (info.jiraTicket) {
+        const jiraLink = moduleInstance.getJira().keyToWebLink(config.JIRA_HOST, info.jiraTicket.key);
+        textMsg = `<${jiraLink}|${info.jiraTicket.key}: ${info.jiraTicket.fields.summary}>`;
+    } else {
+        textMsg = info.message;
+    }
+
     return [
         {
             type: "section",
             text: {
                 type: "mrkdwn",
-                text: `A new request was submitted by <@${userId}>`
-            }
-        },
-        {
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: `*${message}*`
+                text: `Request: *${textMsg}*`
             }
         },
         {
@@ -22,7 +78,7 @@ export const msgRequestSubmitted = (userId: string, message: string, status: str
             elements: [
                 {
                     type: "mrkdwn",
-                    text: "Current status: " + status
+                    text: `${props.icon} ${props.text}`
                 }
             ]
         }

@@ -6,7 +6,7 @@ import {JiraConnection, JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection, SlackMessage, SlackPayload, SlackWebApiResponse} from "@nexus-switchboard/nexus-conn-slack";
 import {findProperty, getNestedVal, hasOwnProperties, NexusModuleConfig} from "@nexus-switchboard/nexus-extend";
 
-import {dlgServiceRequest, msgRequestSubmitted} from "./slack/blocks";
+import {dlgServiceRequest, ITopLevelMessageInput, msgRequestSubmitted} from "./slack/blocks";
 import moduleInstance from "..";
 import {logger} from "..";
 import {SlackMessageId} from "./slackMessageId";
@@ -119,7 +119,11 @@ export default class ServiceRequest {
         this.slackConnection.apiAsBot.chat.postMessage({
                 channel: this.slackMessageId.channel,
                 text: `Request posted by <@${reportingUserId}>: ${requestText}`,
-                blocks: msgRequestSubmitted(reportingUserId, requestText, "Gathering Details")
+                blocks: msgRequestSubmitted({
+                    status: "submitting",
+                    slackUserId: reportingUserId,
+                    message: `${requestText}\n(_Not Final_)`
+                })
             }
         ).then(async (response: SlackPayload) => {
             const messageTs = findProperty(response, "ts");
@@ -166,6 +170,12 @@ export default class ServiceRequest {
                 } else {
                     await this.postRequestActionSuccess(
                         `<@${this.users.claimer.slack.id}> was assigned to ticket ${ticket.key}`);
+
+                    await this.updateTopLevelMessage({
+                        status: "claimed",
+                        jiraTicket: this.jiraTicket,
+                        slackUserId: this.users.claimer.slack.id
+                    });
                 }
             }
             // Now assign the user and set the ticket "in progress"
@@ -191,7 +201,14 @@ export default class ServiceRequest {
             await this.markTicketComplete(this.jiraTicket, this.infraConfig.REQUEST_JIRA_RESOLUTION_DISMISS);
             await this.postRequestActionSuccess(`<@${this.users.closer.slack.id}> successfully dismissed the request.`);
 
+            await this.updateTopLevelMessage({
+                status: "cancelled",
+                jiraTicket: this.jiraTicket,
+                slackUserId: this.users.closer.slack.id
+            });
+
         } catch (e) {
+            logger("Cancel failed with " + e.toString());
             await this.postRequestActionError("There was a problem closing the request: " + e.toString());
         }
     }
@@ -209,10 +226,15 @@ export default class ServiceRequest {
 
             await this.markTicketComplete(this.jiraTicket, this.infraConfig.REQUEST_JIRA_RESOLUTION_DONE);
             await this.postRequestActionSuccess(`<@${this.users.closer.slack.id}>  successfully marked the request as complete`);
+            await this.updateTopLevelMessage({
+                status: "completed",
+                jiraTicket: this.jiraTicket,
+                slackUserId: this.users.closer.slack.id
+            });
 
             return true;
         } catch (e) {
-            logger("Exception thrown during marking request complete: " + e.toString());
+            logger("Complete failed with " + e.toString());
             await this.postRequestActionError("There was a problem completing the request: " + e.toString());
 
             return false;
@@ -221,7 +243,11 @@ export default class ServiceRequest {
 
     public async create(params: IRequestParams): Promise<boolean> {
 
-        await this.updateTopLevelMessage("Creating ticket...", params.title, params.slackUserId);
+        await this.updateTopLevelMessage({
+            status: "communicating",
+            message: params.title,
+            slackUserId: params.slackUserId
+        });
 
         // First let's get information about the user who submitted the request.  We'll use this
         //  to set the reporter on the ticket.
@@ -230,6 +256,14 @@ export default class ServiceRequest {
             await this.postRequestActionError("For some reason I couldn't get information about the " +
                 "person who posted the initial message");
 
+            await this.updateTopLevelMessage({
+                status: "error",
+                message: params.title,
+                slackUserId: params.slackUserId,
+                errorMsg: "Unable to get information about the requesting user from Slack"
+            });
+
+            logger("Failed to load slack user during ticket creation");
             return false;
         }
 
@@ -267,11 +301,22 @@ export default class ServiceRequest {
             const originalTs = originalMessage ? originalMessage.ts : undefined;
             await this.postRequestActionUpdate(reply, originalTs);
 
-            this.updateTopLevelMessage("Ticket created", this.jiraTicket.fields.summary,
-                this.users.reporter.slack.id);
+            await this.updateTopLevelMessage({
+                status: "submitted",
+                jiraTicket: this.jiraTicket,
+                slackUserId: this.users.reporter.slack.id
+            });
 
             return true;
         } else {
+
+            await this.updateTopLevelMessage({
+                status: "error",
+                message: params.title,
+                slackUserId: params.slackUserId,
+                errorMsg: "There was a problem submitting the issue to Jira."
+            });
+
             return false;
         }
     }
@@ -377,15 +422,15 @@ export default class ServiceRequest {
         }
     }
 
-    public async updateTopLevelMessage(newState: string, requestText: string, slackUserId: string) {
+    public async updateTopLevelMessage(info: ITopLevelMessageInput) {
 
         // the source request was an APP post which means we can update it without extra permissions.
         await this.slackConnection.apiAsBot.chat.update({
             channel: this.slackMessageId.channel,
             ts: this.slackMessageId.ts,
             as_user: true,
-            text: `${newState} - ${requestText}`,
-            blocks: msgRequestSubmitted(slackUserId, requestText, newState)
+            text: `${info.status} - ${info.message || info.jiraTicket.fields.summary}`,
+            blocks: msgRequestSubmitted(info)
         });
     }
 
