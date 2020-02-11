@@ -82,7 +82,7 @@ export default class ServiceRequest {
      */
     public static isBotMessage(msg: SlackPayload, username: string) {
         if (msg.subtype && msg.subtype === "bot_message") {
-            return msg.username.toLowerCase() === username.toLowerCase();
+            return msg.username === username;
         } else {
             return false;
         }
@@ -225,7 +225,8 @@ export default class ServiceRequest {
 
         // First let's get information about the user who submitted the request.  We'll use this
         //  to set the reporter on the ticket.
-        if (!await this.loadUser("reporter", params.slackUserId)) {
+        await this.loadUser("reporter", params.slackUserId);
+        if (!this.users.reporter.slack) {
             await this.postRequestActionError("For some reason I couldn't get information about the " +
                 "person who posted the initial message");
 
