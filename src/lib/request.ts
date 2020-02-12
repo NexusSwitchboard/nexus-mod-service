@@ -122,7 +122,7 @@ export default class ServiceRequest {
                 blocks: msgRequestSubmitted({
                     status: "submitting",
                     slackUserId: reportingUserId,
-                    message: `${requestText}\n(_Not Final_)`
+                    message: requestText
                 })
             }
         ).then(async (response: SlackPayload) => {
