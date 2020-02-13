@@ -3,31 +3,24 @@ import assert from "assert";
 import _ from "lodash";
 
 import {JiraConnection, JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
-import {SlackConnection, SlackMessage, SlackPayload, SlackWebApiResponse} from "@nexus-switchboard/nexus-conn-slack";
+import {SlackConnection, SlackPayload, SlackWebApiResponse} from "@nexus-switchboard/nexus-conn-slack";
 import {findProperty, getNestedVal, hasOwnProperties, NexusModuleConfig} from "@nexus-switchboard/nexus-extend";
 
-import {dlgServiceRequest, ITopLevelMessageInput, msgRequestSubmitted} from "./slack/blocks";
+import {getCreateRequestModalView} from "./slack/createRequestModal";
 import moduleInstance from "..";
 import {logger} from "..";
 import {SlackMessageId} from "./slackMessageId";
+import {RequestThread} from "./requestThread";
 
-const claimButton: IssueAction = {
-    code: "claim_request",
-    name: "Claim",
-    style: "primary"
-};
-
-const cancelButton: IssueAction = {
-    code: "cancel_request",
-    name: "Cancel",
-    style: "danger"
-};
-
-const completeButton: IssueAction = {
-    code: "complete_request",
-    name: "Complete",
-    style: "primary"
-};
+export enum RequestState {
+    todo = "todo",
+    claimed = "claimed",
+    complete = "complete",
+    cancelled = "cancelled",
+    working = "working",
+    error = "error",
+    unknown = "unknown"
+}
 
 export interface IRequestParams {
     slackUserId?: string;
@@ -44,12 +37,6 @@ type JiraPayload = {
     [index: string]: any;
 };
 
-export type IssueAction = {
-    code: string,
-    name: string,
-    style?: "primary" | "danger"
-};
-
 type UserType = "claimer" | "reporter" | "closer";
 
 /**
@@ -64,7 +51,7 @@ type RequestUser = {
  * A list of all the user types that could be engaged in this request.  In most cases, these are not
  * filled in for a given request (it depends on the request).
  */
-type UsersInvolved = {
+export type UsersInvolved = {
     [index in UserType]: RequestUser;
 };
 
@@ -88,154 +75,140 @@ export default class ServiceRequest {
         }
     }
 
-    /**
-     * Does a search for a given user based on their email.  Note that this will return an array if there are multiple
-     * users with the same email query given (in  the case where you send only a partial email perhaps).  In those cases
-     * it will return  the first one found.
-     * @param email The email address to search for.
-     */
-    protected jiraTicket: JiraTicket;
+    // stored information about the slack thread associated with the request. You can use this
+    //  to get things like the top level message, the first reply, and other useful utilities
+    protected thread: RequestThread;
 
-    protected slackMessageId: SlackMessageId;
+    // stores information about the user that performed the last action in the thread.  For example,
+    //  if someone "claimed" a ticket, it will hold the slack and, if possible, the jira user information
+    protected user: RequestUser;
 
-    protected infraConfig: NexusModuleConfig;
+    // stores the actual ticket associated with the thread.  This could be empty if the user is still entering
+    //  information about the request and the jira ticket has not yet been created.
+    protected ticket: JiraTicket;
 
-    protected users: UsersInvolved;
+    // stores the configuration information for the module.
+    protected config: NexusModuleConfig;
+    protected slack: SlackConnection;
+    protected jira: JiraConnection;
 
-    protected slackConnection: SlackConnection;
-    protected jiraConnection: JiraConnection;
+    // this is necessary so that we can hold on to the user id that is passed into the constructor and then
+    //  used automatically when the reset is called immediately afterwards.
+    private readonly slackUserId: string;
 
-    constructor(channel: string, ts: string) {
 
-        this.reset(new SlackMessageId(channel, ts));
-
-        this.infraConfig = moduleInstance.getActiveConfig();
-        this.slackConnection = moduleInstance.getSlack();
-        this.jiraConnection = moduleInstance.getJira();
+    private constructor(channel: string, ts: string, slackUserId: string) {
+        this.config = moduleInstance.getActiveConfig();
+        this.slack = moduleInstance.getSlack();
+        this.jira = moduleInstance.getJira();
+        this.thread = new RequestThread(ts, channel, this.slack, this.config);
+        this.slackUserId = slackUserId;
     }
 
-    public async startDetailCollection(reportingUserId: string, requestText: string, triggerId: string) {
+    /**
+     * Factory method to create a new Request object.  This should be called when you expect to have the ticket
+     * already setup as a thread in the Slack channel.  This will attach to it and return the new ServiceRequest object
+     * filled in with all the right values.
+     * @param slackUserId
+     * @param channelId
+     * @param ts
+     */
+    public static async loadExistingThread(slackUserId: string, channelId: string, ts: string): Promise<ServiceRequest> {
+        const request = new ServiceRequest(channelId, ts, slackUserId);
+        await request.reset();
+        return request;
+    }
 
-        this.slackConnection.apiAsBot.chat.postMessage({
-                channel: this.slackMessageId.channel,
-                text: `Request posted by <@${reportingUserId}>: ${requestText}`,
-                blocks: msgRequestSubmitted({
-                    status: "submitting",
-                    slackUserId: reportingUserId,
-                    message: requestText
-                })
+    /**
+     * This static method should be used  when there is no existing thread for the request.  This will
+     * do the work of posting the top level message and displaying the modal that collects input from the user.
+     *
+     * @param slackUserId
+     * @param channelId
+     * @param requestText
+     * @param triggerId
+     */
+    public static async createNewThread(slackUserId: string, channelId: string, requestText: string, triggerId: string) {
+
+        const slack = moduleInstance.getSlack();
+        const config = moduleInstance.getActiveConfig();
+
+        slack.apiAsBot.chat.postMessage({
+                channel: channelId,
+                text: `${config.REQUEST_EDITING_SLACK_ICON} <@${slackUserId}> is working on a new request:\n*${requestText}*`
             }
         ).then(async (response: SlackPayload) => {
             const messageTs = findProperty(response, "ts");
-            const request = new ServiceRequest(this.slackMessageId.channel, messageTs);
+            const request = new ServiceRequest(channelId, messageTs, slackUserId);
 
+            await request.reset();
             await request.showCreateModal(triggerId, {
-                slackUserId: reportingUserId,
+                slackUserId,
                 title: requestText
             });
+
+            return request;
         });
     }
 
     /**
      * This is what should be called when someone has claimed an existing ticket (created with handleAddRequest
-     * @param slackIdOfUserClaiming
      */
-    public async claim(slackIdOfUserClaiming: string): Promise<void> {
-        assert(this.slackMessageId, "Service Mod: Attempting to claim a ticket  without a valid slack message ID");
-
+    public async claim(): Promise<void> {
         try {
-            await this.loadRequest();
-            assert(this.jiraTicket, "Service Mod: Attempting to claim a ticket without a valid jira ticket loaded");
-
-            await this.loadUser("claimer", slackIdOfUserClaiming);
-            assert(this.users.claimer.slack, "Service Mod: Attempting to claim a ticket without a " +
-                "valid 'claimer' user loaded");
-
             // Now verify that the ticket is actually in a state where it can be claimed.
-            const statusCategory:string = getNestedVal(this.jiraTicket, "fields.status.statusCategory.name");
+            const statusCategory: string = getNestedVal(this.ticket, "fields.status.statusCategory.name");
             if (!statusCategory) {
                 logger("Warning: Unable to determine status category of the ticket.  This could be because the jira ticket object json is malformed.");
             }
 
             if (statusCategory && statusCategory.toLowerCase() !== "to do") {
-                await this.postRequestActionError("You can only claim tickets that haven't been started yet.");
+                await this.addErrorReply("You can only claim tickets that haven't been started yet.");
 
             } else {
-                const ticket = await this.claimJiraTicket(this.users.claimer, this.jiraTicket);
+                const ticket = await this.claimJiraTicket();
                 if (!ticket) {
-                    await this.postRequestActionError("Failed to claim this ticket " +
+                    await this.addErrorReply("Failed to claim this ticket " +
                         "possibly because the email associated with your slack account is different than the " +
                         "one in Jira.");
 
                 } else {
-                    await this.postRequestActionSuccess(
-                        `<@${this.users.claimer.slack.id}> was assigned to ticket ${ticket.key}`);
-
-                    await this.updateTopLevelMessage({
-                        status: "claimed",
-                        jiraTicket: this.jiraTicket,
-                        slackUserId: this.users.claimer.slack.id
-                    });
+                    await this.updateState(RequestState.claimed);
                 }
             }
             // Now assign the user and set the ticket "in progress"
         } catch (e) {
             logger("Claim failed with " + e.toString());
-            await this.postRequestActionError("The claim failed due to the following problem: " + e.message);
+            await this.addErrorReply("The claim failed due to the following problem: " + e.message);
         }
     }
 
-    public async cancel(slackIdOfUserClosing: string): Promise<void> {
-
-        assert(this.slackMessageId, "Service Mod: Attempting to cancel a ticket without a valid slackMessageId set");
+    public async cancel(): Promise<void> {
 
         try {
-            await this.loadRequest();
-            assert(this.jiraTicket, "Service Mod: Attempting to cancel a ticket without a valid jira ticket loaded");
-
-            await this.loadUser("closer", slackIdOfUserClosing);
-            assert(this.users.closer, "Service Mod: Attempting to cancel a ticket without a " +
-                "valid 'closer' user loaded");
-
             // now let's try marking it as complete with the right resolution.
-            await this.markTicketComplete(this.jiraTicket, this.infraConfig.REQUEST_JIRA_RESOLUTION_DISMISS);
-            await this.postRequestActionSuccess(`<@${this.users.closer.slack.id}> successfully dismissed the request.`);
+            await this.markTicketComplete(this.ticket, this.config.REQUEST_JIRA_RESOLUTION_DISMISS);
 
-            await this.updateTopLevelMessage({
-                status: "cancelled",
-                jiraTicket: this.jiraTicket,
-                slackUserId: this.users.closer.slack.id
-            });
+            await this.updateState(RequestState.cancelled);
 
         } catch (e) {
             logger("Cancel failed with " + e.toString());
-            await this.postRequestActionError("There was a problem closing the request: " + e.toString());
+            await this.addErrorReply("There was a problem closing the request: " + e.toString());
         }
     }
 
-    public async complete(slackIdOfUserCompleting: string) {
+    public async complete() {
 
-        assert(this.slackMessageId, "Service Mod: Attempting to complete a ticket without a valid slackMessageId set");
+        assert(this.thread, "Service Mod: Attempting to complete a ticket without a valid thread set");
 
         try {
-            await this.loadRequest();
-            assert(this.jiraTicket, "Service Mod: Attempting to cancel a ticket without a valid jiraTicket loaded");
-
-            await this.loadUser("closer", slackIdOfUserCompleting);
-            assert(this.users.closer, "Service Mod: Attempting to cancel a ticket without a 'closing' user loaded");
-
-            await this.markTicketComplete(this.jiraTicket, this.infraConfig.REQUEST_JIRA_RESOLUTION_DONE);
-            await this.postRequestActionSuccess(`<@${this.users.closer.slack.id}>  successfully marked the request as complete`);
-            await this.updateTopLevelMessage({
-                status: "completed",
-                jiraTicket: this.jiraTicket,
-                slackUserId: this.users.closer.slack.id
-            });
+            await this.markTicketComplete(this.ticket, this.config.REQUEST_JIRA_RESOLUTION_DONE);
+            await this.updateState(RequestState.complete);
 
             return true;
         } catch (e) {
             logger("Complete failed with " + e.toString());
-            await this.postRequestActionError("There was a problem completing the request: " + e.toString());
+            await this.addErrorReply("There was a problem completing the request: " + e.toString());
 
             return false;
         }
@@ -243,166 +216,42 @@ export default class ServiceRequest {
 
     public async create(params: IRequestParams): Promise<boolean> {
 
-        await this.updateTopLevelMessage({
-            status: "communicating",
-            message: params.title,
-            slackUserId: params.slackUserId
-        });
-
-        // First let's get information about the user who submitted the request.  We'll use this
-        //  to set the reporter on the ticket.
-        await this.loadUser("reporter", params.slackUserId);
-        if (!this.users.reporter.slack) {
-            await this.postRequestActionError("For some reason I couldn't get information about the " +
-                "person who posted the initial message");
-
-            await this.updateTopLevelMessage({
-                status: "error",
-                message: params.title,
-                slackUserId: params.slackUserId,
-                errorMsg: "Unable to get information about the requesting user from Slack"
-            });
-
-            logger("Failed to load slack user during ticket creation");
-            return false;
-        }
+        await this.updateState(RequestState.working, "Working on your request...");
 
         // check to see if there is already a request associated with this.
-        const existingTicket = await this.findJiraTicketBySlackMessage(this.slackMessageId);
-        if (existingTicket) {
-            await this.postRequestActionError("There is already a request associated with this message: " +
-                `<${this.jiraConnection.keyToWebLink(this.infraConfig.JIRA_HOST, existingTicket.key)}|` +
-                `${existingTicket.key} - ${existingTicket.fields.summary}>`);
+        if (this.ticket) {
+            await this.addErrorReply("There is already a request associated with this message: " +
+                `<${this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key)}|` +
+                `${this.ticket.key} - ${this.ticket.fields.summary}>`);
             return false;
         }
 
         // Now we will construct the ticket parameter starting with the labels.  We submit the
         //  encoded form of the slack message id in order to connect the jira ticket with the
         //  message which started it all.
-        const requiredLabels = ["infrabot-request", this.slackMessageId.buildRequestId()];
+        const requiredLabels = ["infrabot-request", this.thread.serializeId()];
         params.labels = params.labels ? requiredLabels.concat(params.labels) : requiredLabels;
 
         const ticket = await this.createTicket(params);
-
-        // DEBUGGING: Comment the above expression and uncomment the below to test this method
-        //  without adding a new ticket every time.
-        // const ticket = await findJiraTicketBySlackMessage(infraConfig, "1577815243.000200");
-
         if (ticket) {
-            this.jiraTicket = ticket;
-
-            // Generate the slack message that has all the actions that can be performed on the request
-            //  after it has been created.
-            const reply = this.issueToSlackMessage(
-                `A request has been started by <@${this.users.reporter.slack.id}> `, ticket,
-                [claimButton, completeButton, cancelButton]);
-
-            const originalMessage = await this.findStatusReplyMessage();
-            const originalTs = originalMessage ? originalMessage.ts : undefined;
-            await this.postRequestActionUpdate(reply, originalTs);
-
-            await this.updateTopLevelMessage({
-                status: "submitted",
-                jiraTicket: this.jiraTicket,
-                slackUserId: this.users.reporter.slack.id
-            });
-
+            this.ticket = ticket;
+            await this.updateState(RequestState.todo);
             return true;
         } else {
-
-            await this.updateTopLevelMessage({
-                status: "error",
-                message: params.title,
-                slackUserId: params.slackUserId,
-                errorMsg: "There was a problem submitting the issue to Jira."
-            });
-
+            await this.updateState(RequestState.error, "There was a problem submitting the issue to Jira.");
             return false;
         }
     }
 
     /**
-     * Posts a message to the right slack thread with a standard error format
-     * @param msg
-     * @param messageToUpdateTs If given, it will try and replace the given message
+     * Takes the given text and adds a comment to the associated jira ticket.
+     * @param text The text of the comment.
      */
-    public async postRequestActionError(msg: string, messageToUpdateTs?: string) {
-        return this.postRequestActionUpdate({text: `:x: ${msg}`}, messageToUpdateTs);
-    }
-
-    /**
-     * Posts a message to the right slack thread with a standard success format.
-     * @param msg
-     * @param messageToUpdateTs If given, it will try and replace the given message
-     */
-    public async postRequestActionSuccess(msg: string, messageToUpdateTs?: string) {
-        return this.postRequestActionUpdate({text: `:white_check_mark: ${msg}`}, messageToUpdateTs);
-    }
-
-    /**
-     * This will add or replace a post to the right channel.  The slack payload given is the same as the payload
-     * you would use when posting a message but it will handle things like
-     * @param messageParams
-     * @param updateSpecificMessageTs
-     */
-    public async postRequestActionUpdate(messageParams: SlackPayload, updateSpecificMessageTs?: string) {
-        assert(this.slackMessageId.valid(), "Service Mod: Attempting to post a slack update for a ticket without a valid slack message ID");
-
-        if (updateSpecificMessageTs) {
-            const options: ChatUpdateArguments = Object.assign(
-                {}, {
-                    text: "",
-                    channel: this.slackMessageId.channel,
-                    ts: this.slackMessageId.ts
-                }, messageParams);
-
-            return await this.slackConnection.apiAsBot.chat.update(options);
-        } else {
-            const options: ChatPostMessageArguments = Object.assign({}, {
-                text: "",
-                channel: this.slackMessageId.channel,
-                thread_ts: this.slackMessageId.ts
-            }, messageParams);
-
-            return await this.slackConnection.apiAsBot.chat.postMessage(options);
-        }
-    }
-
     public async addComment(text: string): Promise<JiraPayload> {
-        assert(this.slackMessageId.valid(), "Service Mod: Attempting to add a ticket comment without a valid slack message ID");
-        assert(this.jiraTicket, "Service Mod: Attempting to add a ticket comment without a valid jiraTicket");
-
-        return await this.jiraConnection.api.issueComments.addComment({
-            issueIdOrKey: this.jiraTicket.key,
-            body: this.jiraConnection.transformDescriptionText(text, 2)
+        return await this.jira.api.issueComments.addComment({
+            issueIdOrKey: this.ticket.key,
+            body: this.jira.transformDescriptionText(text, 2)
         });
-    }
-
-    /**
-     * Attempts to find and store the jira ticket associated with the stored or given message Id.  If successful,
-     * the jiraTicket property is set and associated values are reset.
-     * @param messageId The ID of the message (a combination of channel and ts)
-     */
-    public async loadRequest(messageId?: SlackMessageId): Promise<boolean> {
-
-        if (!messageId) {
-            messageId = this.slackMessageId;
-        }
-
-        const messageIsDifferent = !this.slackMessageId || !_.isEqual(messageId, this.slackMessageId);
-
-        // If the message in the instance is not set or different than the one given, then
-        //  (re)initialize the request-related properties in the instance.
-        if (messageIsDifferent) {
-            this.reset(this.slackMessageId);
-        }
-
-        // Only load a new ticket if it's different
-        if (!this.jiraTicket || messageIsDifferent) {
-            this.jiraTicket = await this.findJiraTicketBySlackMessage(messageId);
-        }
-
-        return !!(this.jiraTicket);
     }
 
     /**
@@ -422,18 +271,6 @@ export default class ServiceRequest {
         }
     }
 
-    public async updateTopLevelMessage(info: ITopLevelMessageInput) {
-
-        // the source request was an APP post which means we can update it without extra permissions.
-        await this.slackConnection.apiAsBot.chat.update({
-            channel: this.slackMessageId.channel,
-            ts: this.slackMessageId.ts,
-            as_user: true,
-            text: `${info.status} - ${info.message || info.jiraTicket.fields.summary}`,
-            blocks: msgRequestSubmitted(info)
-        });
-    }
-
     /**
      * This will show the infra request modal and use the message that triggered it to prepopulate it.
      * @param triggerId
@@ -441,41 +278,33 @@ export default class ServiceRequest {
      */
     protected async showCreateModal(triggerId: string, requestParams?: IRequestParams): Promise<boolean> {
 
-        assert(this.slackMessageId.valid(), "Service Mod: Attempting to show a slack modal for a ticket without a valid slack message ID");
+        const requestId = this.thread.serializeId();
 
-        const requestId = this.slackMessageId.buildRequestId();
-
-        const modal = await this.slackConnection.apiAsBot.views.open({
+        const modal = await this.slack.apiAsBot.views.open({
             trigger_id: triggerId,
-            view: dlgServiceRequest(requestParams, requestId)
+            view: getCreateRequestModalView(requestParams, requestId)
         });
 
         return modal.ok;
     }
 
-    protected reset(messageId: SlackMessageId) {
-        this.slackMessageId = messageId;
+    protected async reset() {
 
-        this.users = {
-            claimer: {
-                slack: undefined,
-                jira: undefined
-            },
-            reporter: {
-                slack: undefined,
-                jira: undefined
-            },
-            closer: {
-                slack: undefined,
-                jira: undefined
+        this.ticket = await this.findTicketByMessageId(this.thread.slackMessageId);
+
+        if (!this.user || !this.user.slack || this.user.slack.id !== this.slackUserId) {
+            this.user = await this.getUserInfoFromSlackUserId(this.slackUserId);
+            if (!this.user.slack) {
+                throw new Error("There was a problem loading the slack user info for user with ID: " +
+                    this.slackUserId);
             }
-        };
+        }
     }
 
     protected async getJiraUser(email: string): Promise<Record<string, any>> {
 
         try {
-            const users = await this.jiraConnection.api.userSearch.findUsers({
+            const users = await this.jira.api.userSearch.findUsers({
                 query: email
             });
             if (users && users.length > 0) {
@@ -489,22 +318,8 @@ export default class ServiceRequest {
         }
     }
 
-    /**
-     * Loads the slack and jira user details from a given slack user ID
-     * @param type
-     * @param slackUserId
-     */
-    protected async loadUser(type: UserType, slackUserId: string): Promise<boolean> {
-
-        if (!this.users[type].slack || this.users[type].slack.id !== slackUserId) {
-            this.users[type] = await this.getUserInfoFromSlackUserId(slackUserId);
-        }
-
-        return !_.isUndefined(this.users[type].slack) && !_.isUndefined(this.users[type].jira);
-    }
-
     protected async getSlackUser(userId: string): Promise<SlackPayload> {
-        const userInfo = await this.slackConnection.apiAsBot.users.info({user: userId}) as SlackWebApiResponse;
+        const userInfo = await this.slack.apiAsBot.users.info({user: userId}) as SlackWebApiResponse;
         if (userInfo && userInfo.ok) {
             return userInfo.user;
         } else {
@@ -512,60 +327,44 @@ export default class ServiceRequest {
         }
     }
 
-    protected issueToSlackMessage(msg: string, issue: JiraTicket, actions: IssueAction[]): ChatPostMessageArguments {
 
-        const issueLink = this.jiraConnection.keyToWebLink(this.infraConfig.JIRA_HOST, issue.key);
+    protected cleanTitle(source: string): string {
+        return source.replace(/\n/g, " ");
+    }
 
-        return {
-            blocks: [
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `${msg}:\n*<${issueLink}|${issue.key} - ${issue.fields.summary}>*`
-                    }
-                },
-                {
-                    type: "section",
-                    fields: [
-                        {
-                            type: "mrkdwn",
-                            text: `*Reporter:*\n${issue.fields.reporter ? issue.fields.reporter.name : "Unknown"}`
-                        },
-                        {
-                            type: "mrkdwn",
-                            text: `*Submitted On:*\n${this.jiraConnection.friendlyDateString(issue.fields.created)}`
-                        }
-                    ]
-                },
-                {
-                    type: "actions",
-                    block_id: "infra_request_actions",
-                    elements: actions.map((a) => {
-                        return {
-                            type: "button",
-                            text: {
-                                type: "plain_text",
-                                emoji: true,
-                                text: a.name
-                            },
-                            style: a.style,
-                            value: a.code
-                        };
-                    })
-                }
-            ]
-        } as ChatPostMessageArguments;
+
+    /**
+     * Search for a ticket based on a unique Slack TS value (slack timestamp).
+     */
+    protected async findTicketByMessageId(message: SlackMessageId): Promise<JiraTicket> {
+        try {
+            const jql = `labels in ("${message.buildRequestId()}") and labels in ("infrabot-request")`;
+            const results = await this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
+                jql,
+                fields: ["*all"]
+            });
+
+            if (results.total === 1) {
+                return results.issues[0];
+            } else if (results.total > 1) {
+                return results.issues[0];
+            } else {
+                return undefined;
+            }
+        } catch (e) {
+            logger("Exception thrown: Unable to search for tickets by slack ts field: " + e.toString());
+            return undefined;
+        }
     }
 
     /**
      * Creates a request ticket in Jira.
      */
     protected async createTicket(request: IRequestParams): Promise<JiraTicket> {
-        assert(this.infraConfig.REQUEST_JIRA_ISSUE_TYPE_ID, "Service Mod: Attempting to create a ticket without a valid Jira Issue Type config  set");
-        assert(this.infraConfig.REQUEST_JIRA_PROJECT, "Service Mod: Attempting to create a ticket without a valid Jira Project config  set");
+        assert(this.config.REQUEST_JIRA_ISSUE_TYPE_ID, "Service Mod: Attempting to create a ticket without a valid Jira Issue Type config  set");
+        assert(this.config.REQUEST_JIRA_PROJECT, "Service Mod: Attempting to create a ticket without a valid Jira Project config  set");
 
-        let priorityId = await this.jiraConnection.getPriorityIdFromName(request.priority);
+        let priorityId = await this.jira.getPriorityIdFromName(request.priority);
         if (!priorityId) {
             logger(`Unable to find the priority "${request.priority}" so defaulting to medium (2)`);
             priorityId = 2;
@@ -578,14 +377,14 @@ export default class ServiceRequest {
             const params = {
                 fields: {
                     summary: this.cleanTitle(request.title),
-                    description: this.jiraConnection.transformDescriptionText(
+                    description: this.jira.transformDescriptionText(
                         `${request.description || "No Description Given"}\n` +
-                        `Submitted by ${this.users.reporter.slack.profile.real_name}`, 2),
+                        `Submitted by ${getNestedVal(this.user.slack, "profile.real_name") || "(?)"}`, 2),
                     project: {
-                        key: this.infraConfig.REQUEST_JIRA_PROJECT
+                        key: this.config.REQUEST_JIRA_PROJECT
                     },
                     issuetype: {
-                        id: this.infraConfig.REQUEST_JIRA_ISSUE_TYPE_ID
+                        id: this.config.REQUEST_JIRA_ISSUE_TYPE_ID
                     },
                     priority: {
                         id: priorityId.toString()
@@ -595,23 +394,23 @@ export default class ServiceRequest {
             };
 
             // first create the issue
-            const result = await this.jiraConnection.api.issues.createIssue(params);
+            const result = await this.jira.api.issues.createIssue(params);
 
             // we purposely set the epic after the ticket is created to avoid an epic setting error from
             //  preventing  ticket creation.  Sometimes, depending on the configuration of the project, this may
             //  fail while the basic values in the initial ticket creation will almost always succeed.
-            if (this.infraConfig.REQUEST_JIRA_EPIC) {
-                await this.setEpic(result.key, this.infraConfig.REQUEST_JIRA_EPIC);
+            if (this.config.REQUEST_JIRA_EPIC) {
+                await this.setEpic(result.key, this.config.REQUEST_JIRA_EPIC);
             }
 
             // we purposely set the reporter after the ticket is created to avoid a reporter setting error from
             //  preventing  ticket creation.  Sometimes, depending on the configuration of the project, this may
             //  fail while the basic values in the initial ticket creation will almost always succeed.
-            if (this.users.reporter.jira) {
-                await this.setReporter(result.key, this.users.reporter.jira);
+            if (this.user.jira) {
+                await this.setReporter(result.key, this.user.jira);
             }
 
-            return await this.jiraConnection.api.issue.getIssue({issueIdOrKey: result.key});
+            return await this.jira.api.issue.getIssue({issueIdOrKey: result.key});
 
         } catch (e) {
             logger("JIRA createIssue failed: " + e.toString());
@@ -623,45 +422,41 @@ export default class ServiceRequest {
      * Puts a request in progress using the given key to find the existing ticket and the given
      * email to set the assignee.
      */
-    protected async claimJiraTicket(user: RequestUser, ticket: JiraTicket): Promise<JiraTicket> {
-        if (!user.slack || !user.jira) {
-            throw new Error("Users have not been loaded prior to initiating a claim");
-        }
-
-        if (!ticket) {
+    protected async claimJiraTicket(): Promise<JiraTicket> {
+        if (!this.ticket) {
             throw new Error("The jira ticket to claim has not yet been loaded.");
         }
 
-        if (!this.infraConfig || !hasOwnProperties(this.infraConfig, [
+        if (!this.config || !hasOwnProperties(this.config, [
             "REQUEST_JIRA_START_TRANSITION_ID"])) {
             throw Error("Necessary configuration values for infra module not found for this action");
         }
 
         try {
-            if (user.jira) {
+            if (this.user.jira) {
                 try {
-                    await this.jiraConnection.api.issues.assignIssue({
-                        issueIdOrKey: ticket.key,
-                        accountId: user.jira.accountId
+                    await this.jira.api.issues.assignIssue({
+                        issueIdOrKey: this.ticket.key,
+                        accountId: this.user.jira.accountId
                     });
                 } catch (e) {
-                    logger("Unable to  assign issue to given user: " + e.toString());
+                    logger("Exception thrown: Unable to  assign issue to given user: " + e.toString());
                     return null;
                 }
             } else {
                 try {
                     // verifies that  the  issue is there.
-                    await this.jiraConnection.api.issue.getIssue({issueIdOrKey: ticket.key});
+                    await this.jira.api.issue.getIssue({issueIdOrKey: this.ticket.key});
                 } catch (e) {
-                    logger("Unable to find the issue with ID" + ticket.key);
+                    logger("Exception thrown: Unable to find the issue with ID" + this.ticket.key);
                     return null;
                 }
             }
 
-            await this.jiraConnection.api.issues.transitionIssue({
-                issueIdOrKey: ticket.key,
+            await this.jira.api.issues.transitionIssue({
+                issueIdOrKey: this.ticket.key,
                 transition: {
-                    id: this.infraConfig.REQUEST_JIRA_START_TRANSITION_ID, // Start Progress
+                    id: this.config.REQUEST_JIRA_START_TRANSITION_ID, // Start Progress
                 },
                 fields: undefined,
                 update: undefined,
@@ -669,9 +464,9 @@ export default class ServiceRequest {
                 properties: undefined
             });
 
-            return await this.jiraConnection.api.issue.getIssue({issueIdOrKey: ticket.key});
+            return await this.jira.api.issue.getIssue({issueIdOrKey: this.ticket.key});
         } catch (e) {
-            logger("Unable to transition the given issue: " + e.toString());
+            logger("Exception thrown: Unable to transition the given issue: " + e.toString());
             return undefined;
         }
     }
@@ -681,22 +476,22 @@ export default class ServiceRequest {
      */
     protected async markTicketComplete(ticket: JiraTicket, resolutionName: string): Promise<JiraTicket> {
 
-        let resolutionId = await this.jiraConnection.getResolutionIdFromName(resolutionName);
+        let resolutionId = await this.jira.getResolutionIdFromName(resolutionName);
         if (!resolutionId) {
             logger(`Unable to find the resolution "${resolutionName}" so defaulting to 'Done'`);
             resolutionId = 1; // Done
         }
 
-        if (!this.infraConfig || !hasOwnProperties(this.infraConfig, [
+        if (!this.config || !hasOwnProperties(this.config, [
             "REQUEST_JIRA_COMPLETE_TRANSITION_ID"])) {
             throw Error("Necessary configuration values for infra module not found for this action");
         }
 
         try {
-            await this.jiraConnection.api.issues.transitionIssue({
+            await this.jira.api.issues.transitionIssue({
                 issueIdOrKey: ticket.key,
                 transition: {
-                    id: this.infraConfig.REQUEST_JIRA_COMPLETE_TRANSITION_ID, // Start Progress
+                    id: this.config.REQUEST_JIRA_COMPLETE_TRANSITION_ID, // Start Progress
                 },
                 fields: {
                     resolution: {
@@ -708,7 +503,7 @@ export default class ServiceRequest {
                 properties: undefined
             });
 
-            return await this.jiraConnection.api.issue.getIssue({issueIdOrKey: ticket.key});
+            return await this.jira.api.issue.getIssue({issueIdOrKey: ticket.key});
 
         } catch (e) {
             logger("Unable to transition the given issue: " + e.toString());
@@ -716,64 +511,140 @@ export default class ServiceRequest {
         }
     }
 
+
     /**
-     * Search for a ticket based on a unique Slack TS value (slack timestamp).
+     * Maps an issue's status to a request state.
      */
-    protected async findJiraTicketBySlackMessage(message: SlackMessageId): Promise<JiraTicket> {
-        try {
-            const jql = `labels in ("${message.buildRequestId()}") and labels in ("infrabot-request")`;
-            logger("Running JQL tin find Slack Message: " + jql);
-            const results = await this.jiraConnection.api.issueSearch.searchForIssuesUsingJqlPost({
-                jql,
-                fields: ["*all"]
-            });
+    // @ts-ignore
+    private getIssueState(): RequestState {
 
-            if (results.total === 1) {
-                return results.issues[0];
-            } else if (results.total > 1) {
-                logger("There was more than one ticket that had that label - returning the first one");
-                return results.issues[0];
-            } else {
-                logger("A ticket could not be found that matches the slack message ID given: " + message.toString());
-                return undefined;
-            }
-        } catch (e) {
-            logger("Unable to search for tickets by slack ts field: " + e.toString());
-            return undefined;
-        }
-    }
+        const cat: string = getNestedVal(this.ticket, "fields.status.statusCategory.name");
+        const config = moduleInstance.getActiveConfig();
 
-    protected async findStatusReplyMessage(): Promise<SlackMessage> {
-        if (!this.slackMessageId.ts) {
-            throw new Error("You cannot find a status reply without an existing source thread");
-        }
-
-        try {
-            const messages = await this.slackConnection.getChannelThread(this.slackMessageId.channel,
-                this.slackMessageId.ts);
-
-            for (const m of messages) {
-                if (m.text.toLowerCase().search("a request has been started") >= 0) {
-                    return m;
+        if (cat.toLowerCase() === "to do") {
+            return RequestState.todo;
+        } else if (cat.toLowerCase() === "in progress") {
+            return RequestState.claimed
+        } else if (cat.toLowerCase() === "done") {
+            const resolution: string = getNestedVal(this.ticket, "fields.resolution.name");
+            if (resolution) {
+                if (resolution.toLowerCase() === config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
+                    return RequestState.complete;
+                } else {
+                    return RequestState.cancelled;
                 }
             }
+            return RequestState.complete
+        } else {
+            return RequestState.unknown;
+        }
+    };
 
-            return undefined;
-        } catch (e) {
-            logger("Unable to find status reply message due to this error: " + e.toString());
-            return undefined;
+    /**
+     * Posts a message to the right slack thread with a standard error format
+     * @param msg
+     * @param messageToUpdateTs If given, it will try and replace the given message
+     */
+    public async addErrorReply(msg: string, messageToUpdateTs?: string) {
+        return this.addReply({text: `:x: ${msg}`}, messageToUpdateTs);
+    }
+
+    /**
+     * Posts a message to the right slack thread with a standard success format.
+     * @param msg
+     * @param messageToUpdateTs If given, it will try and replace the given message
+     */
+    public async addInfoReply(msg: string, messageToUpdateTs?: string) {
+        return this.addReply({text: `:white_check_mark: ${msg}`}, messageToUpdateTs);
+    }
+
+    /**
+     * This will add or replace a post to the right channel.  The slack payload given is the same as the payload
+     * you would use when posting a message but it will handle things like
+     * @param messageParams
+     * @param updateSpecificMessageTs
+     */
+    public async addReply(messageParams: SlackPayload, updateSpecificMessageTs?: string) {
+        if (updateSpecificMessageTs) {
+            const options: ChatUpdateArguments = Object.assign(
+                {}, {
+                    text: "",
+                    channel: this.thread.channel,
+                    ts: updateSpecificMessageTs
+                }, messageParams);
+
+
+            try {
+                await this.slack.apiAsBot.chat.update(options);
+            } catch(e) {
+                logger("Exception thrown: Failed to update the top reply in the thread: " + e.toString());
+            }
+
+        } else {
+            const options: ChatPostMessageArguments = Object.assign({}, {
+                text: "",
+                channel: this.thread.channel,
+                thread_ts: this.thread.ts
+            }, messageParams);
+
+            await this.slack.apiAsBot.chat.postMessage(options);
         }
     }
 
-    protected cleanTitle(source: string): string {
-        return source.replace(/\n/g, " ");
+    public async updateState(state: RequestState, msg?: string) {
+        this.updateTopLevelMessage(state, msg);
+        this.updateActionBar(state);
+    }
+
+    /**
+     * This will add the buttons at the top of the thread in the form of a
+     * reply in the thread.  If there are no messages in the thread then it will add one.
+     * If there is somehow already a message in the thread then it will either overwrite or, if it doesn't
+     * have sufficient permissions will fail.
+     * @param state
+     */
+    public async updateActionBar(state: RequestState) {
+        const header = await this.thread.getThreadHeaderMessageId();
+
+        let jiraLink: string;
+        if (this.ticket) {
+            jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+        }
+
+        try {
+            this.addReply({
+                text: "Action Bar",
+                blocks: this.thread.buildActionBlocks(state, this.ticket, jiraLink)
+            }, header ? header.ts : undefined);
+        } catch (e) {
+            logger("Exception thrown: Unable to add the action bar probably because there's already a first " +
+                "message in the thread that has been added by someone other than the bot")
+        }
+    }
+
+    public async updateTopLevelMessage(state: RequestState, msg?: string) {
+
+        let jiraLink: string;
+        if (this.ticket) {
+            jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+        }
+
+        // the source request was an APP post which means we can update it without extra permissions.
+        await this.slack.apiAsBot.chat.update({
+            channel: this.thread.channel,
+            ts: this.thread.ts,
+            as_user: true,
+            text: this.thread.getMessageText(this.ticket, state, jiraLink, msg),
+            blocks: this.thread.buildTextBlocks(this.ticket, state,
+                jiraLink, msg, this.user.slack ? this.user.slack.id : undefined)
+        });
     }
 
     private async setReporter(jiraKey: string, user: JiraPayload) {
         // now try and set the reporter.  This may not be allowed because the API key being used
         //  does not have sufficient permissions.
         try {
-            await this.jiraConnection.api.issues.editIssue({
+            await this.jira.api.issues.editIssue({
                 issueIdOrKey: jiraKey,
                 fields: {
                     reporter: {
@@ -787,6 +658,7 @@ export default class ServiceRequest {
         }
     }
 
+
     private async setEpic(jiraKey: string, epicKey: string) {
         // now try and set the epic. This may not always be allowed because the project is not setup
         // to set the epic on creation (or at all).
@@ -797,8 +669,8 @@ export default class ServiceRequest {
                 fields
             };
 
-            if (this.infraConfig.REQUEST_JIRA_EPIC_LINK_FIELD) {
-                const epicLinkField: string = this.infraConfig.REQUEST_JIRA_EPIC_LINK_FIELD;
+            if (this.config.REQUEST_JIRA_EPIC_LINK_FIELD) {
+                const epicLinkField: string = this.config.REQUEST_JIRA_EPIC_LINK_FIELD;
                 params.fields[epicLinkField] = epicKey;
             } else {
 
@@ -810,10 +682,11 @@ export default class ServiceRequest {
                     }
                 };
             }
-            await this.jiraConnection.api.issues.editIssue(params);
+            await this.jira.api.issues.editIssue(params);
         } catch (e) {
             logger("Unable to set the epic possibly because the project is not setup properly: " +
                 e.toString());
         }
     }
+
 }

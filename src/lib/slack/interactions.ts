@@ -7,11 +7,12 @@ import {
 } from "@nexus-switchboard/nexus-conn-slack";
 
 import assert from "assert";
-import {findNestedProperty, findProperty, getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {findNestedProperty, findProperty, getNestedVal, NexusModuleConfig} from "@nexus-switchboard/nexus-extend";
 import {SlackMessageId} from "../slackMessageId";
 import {logger} from "../..";
 import ServiceRequest from "../../lib/request";
 import moduleInstance from "../..";
+import {RequestThread} from "../requestThread";
 
 export const interactions: ISlackInteractionHandler[] = [{
     /************
@@ -22,13 +23,23 @@ export const interactions: ISlackInteractionHandler[] = [{
 
     matchingConstraints: {blockId: "infra_request_actions"},
     type: SlackInteractionType.action,
-    handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
+    handler: async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         assert(slackParams.actions && slackParams.actions.length > 0, "Received slack action event but actions array appears to be empty");
+
+        const config = moduleInstance.getActiveConfig();
+
+        if (slackParams.actions[0].value === "view_request") {
+            return {
+                code: 200
+            }
+        }
 
         ////////// CLAIM
         if (slackParams.actions[0].value === "claim_request") {
-            const request = new ServiceRequest(slackParams.channel.id, slackParams.message.thread_ts);
-            request.claim(slackParams.user.id)
+            ServiceRequest.loadExistingThread(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
+                .then((request) => {
+                    return request.claim()
+                })
                 .then((_success) => {
                     logger(`Successfully claimed request for message ${slackParams.message.thread_ts}`);
                 })
@@ -36,12 +47,16 @@ export const interactions: ISlackInteractionHandler[] = [{
                     logger(`Failed to claim request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
                 });
+
+            updateActionBar("Claiming request...", conn, slackParams, config);
         }
 
         ////////// CANCEL
         if (slackParams.actions[0].value === "cancel_request") {
-            const request = new ServiceRequest(slackParams.channel.id, slackParams.message.thread_ts);
-            request.cancel(slackParams.user.id)
+            ServiceRequest.loadExistingThread(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
+                .then((request) => {
+                    return request.cancel();
+                })
                 .then((_success) => {
                     logger(`Successfully cancelled request for message ${slackParams.message.thread_ts}`);
                 })
@@ -49,12 +64,16 @@ export const interactions: ISlackInteractionHandler[] = [{
                     logger(`Failed to cancel request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
                 });
+
+            updateActionBar("Cancelling request...", conn, slackParams, config);
         }
 
         ////////// COMPLETE
         if (slackParams.actions[0].value === "complete_request") {
-            const request = new ServiceRequest(slackParams.channel.id, slackParams.message.thread_ts);
-            request.complete(slackParams.user.id)
+            ServiceRequest.loadExistingThread(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
+                .then((request) => {
+                    return request.complete();
+                })
                 .then((_success: boolean) => {
                     logger(`Successfully completed request for message ${slackParams.message.thread_ts}`);
                 })
@@ -62,6 +81,8 @@ export const interactions: ISlackInteractionHandler[] = [{
                     logger(`Failed to complete request for message ${slackParams.message.thread_ts}. ` +
                         `Error: ${err.toString()}`);
                 });
+
+            updateActionBar("Completing request...", conn, slackParams, config);
         }
 
         return {
@@ -84,9 +105,7 @@ export const interactions: ISlackInteractionHandler[] = [{
         const channel = findNestedProperty(slackParams, "channel", "id");
         const text = _conn.extractTextFromPayload(slackParams).join("");
 
-        const request = new ServiceRequest(channel, ts);
-
-        request.startDetailCollection(slackUserId, text, slackParams.trigger_id)
+        ServiceRequest.createNewThread(slackUserId, channel, text, slackParams.trigger_id)
             .catch((e) => {
                 logger("Failed to start detail collection: " + e.toString());
             });
@@ -131,16 +150,19 @@ export const interactions: ISlackInteractionHandler[] = [{
             if (metaData) {
                 const userId = findNestedProperty(slackParams, "user", "id");
                 const messageId = SlackMessageId.fromEncodedId(metaData);
-                const request = new ServiceRequest(messageId.channel, messageId.ts);
-                request.create({
-                    slackUserId: userId,
-                    title: values.summary,
-                    description: values.description,
-                    priority: "medium",
-                    labels: [values.category]
-                }).catch((err) => {
-                    logger("There was a problem processing the infra request submission: " + err.toString());
-                });
+
+                ServiceRequest.loadExistingThread(userId, messageId.channel, messageId.ts)
+                    .then((request) => {
+                        request.create({
+                            slackUserId: userId,
+                            title: values.summary,
+                            description: values.description,
+                            priority: "medium",
+                            labels: [values.category]
+                        }).catch((err) => {
+                            logger("There was a problem processing the infra request submission: " + err.toString());
+                        });
+                    });
 
                 return {
                     code: 200,
@@ -191,3 +213,24 @@ export const interactions: ISlackInteractionHandler[] = [{
         };
     }
 }];
+
+const updateActionBar = (msg: string, conn: SlackConnection, slackParams: SlackPayload, config: NexusModuleConfig) => {
+
+    const blocks = RequestThread.buildActionBarHeader();
+    blocks.push({
+        type: "section",
+        text: {
+            type: 'mrkdwn',
+            text: `${config.REQUEST_WORKING_SLACK_ICON} ${msg}`
+        }
+    });
+
+    // Message responses can be sent for up to 30 minutes after the action took place.
+    conn.sendMessageResponse(slackParams, {
+        replace_original: "true",
+        blocks
+    }).catch((e) => {
+        logger("Exception thrown: Unable to send message response after action: "
+            + e.toString());
+    });
+};

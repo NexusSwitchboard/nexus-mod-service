@@ -1,6 +1,6 @@
 import {SlackConnection, ISlackAckResponse, SlackEventList, SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import {findNestedProperty, findProperty} from "@nexus-switchboard/nexus-extend";
-import moduleInstance from "../..";
+import moduleInstance, {logger} from "../..";
 import ServiceRequest from "../../lib/request";
 
 /**
@@ -27,9 +27,8 @@ const handlePostedThreadMessage = async (conn: SlackConnection,
 
             // note that we don't block on requests in the main flow because slack is expecting a response of some
             //  kind within a very short period.
-            const request = new ServiceRequest(channel, threadTs);
-            request.loadRequest().then(async (found) => {
-                if (found) {
+            ServiceRequest.loadExistingThread(slackUserId, channel, messageTs)
+                .then(async (request: ServiceRequest) => {
                     // now get the user information so we can ensure that the comment has a reference
                     //  to the originating user (you cannot add a comment AS another user in Jira.
                     const userInfo = await request.getUserInfoFromSlackUserId(slackUserId);
@@ -46,11 +45,10 @@ const handlePostedThreadMessage = async (conn: SlackConnection,
 
                     // now add the message as a comment on the original ticket.
                     return await request.addComment(commentText);
-
-                } else {
-                    return undefined;
-                }
-            });
+                })
+                .catch((e) => {
+                    logger("Exception thrown: Unable to send comment to Jira: " + e.toString());
+                });
         }
     }
 

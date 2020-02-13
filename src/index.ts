@@ -11,7 +11,7 @@ import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
 
-export const logger = createDebug("nexus:infra");
+export const logger = createDebug("nexus:service");
 
 class ServiceModule extends NexusModule {
     public name = "service";

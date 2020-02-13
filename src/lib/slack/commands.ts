@@ -11,15 +11,12 @@ export const requestSubcommands: SlackSubCommandList = {
 
         try {
             const channel = findProperty(slackParams, "channel_id");
-            const messageTs = findProperty(slackParams, "ts");
             const slackUserId = findProperty(slackParams, "user_id");
 
             // first, post a message that we can use as an anchor
-            const preRequest = new ServiceRequest(channel, messageTs);
-            preRequest
-                .startDetailCollection(slackUserId, textWithoutAction, slackParams.trigger_id)
+            ServiceRequest.createNewThread(slackUserId, channel, textWithoutAction, slackParams.trigger_id)
                 .catch((e) => {
-                    logger("Failed to start request detail collection: " + e.toString());
+                    logger("Failed to start detail collection: " + e.toString());
                 });
 
         } catch (e) {
