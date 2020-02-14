@@ -5,10 +5,10 @@ import ServiceRequest from "../../lib/request";
 
 /**
  * General handler for thread posts made in threads that are part of an open request.
- * @param conn The connection past to the event handler
+ * @param _conn
  * @param slackParams The params past to the event handler
  */
-const handlePostedThreadMessage = async (conn: SlackConnection,
+const handlePostedThreadMessage = async (_conn: SlackConnection,
                                          slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
     const config = moduleInstance.getActiveConfig();
@@ -27,24 +27,9 @@ const handlePostedThreadMessage = async (conn: SlackConnection,
 
             // note that we don't block on requests in the main flow because slack is expecting a response of some
             //  kind within a very short period.
-            ServiceRequest.loadExistingThread(slackUserId, channel, messageTs)
+            ServiceRequest.loadExistingThread(slackUserId, channel, threadTs)
                 .then(async (request: ServiceRequest) => {
-                    // now get the user information so we can ensure that the comment has a reference
-                    //  to the originating user (you cannot add a comment AS another user in Jira.
-                    const userInfo = await request.getUserInfoFromSlackUserId(slackUserId);
-
-                    const permaLink = await conn.apiAsBot.chat.getPermalink({
-                        channel,
-                        message_ts: messageTs
-                    });
-
-                    const text = findProperty(slackParams, "text");
-                    const slackDisplayName = findProperty(userInfo.slack, "display_name") ||
-                        findProperty(userInfo.slack, "real_name");
-                    const commentText = `\n${text}\n----\n??Comment posted in [Slack|${permaLink.permalink}] by ${slackDisplayName}??`;
-
-                    // now add the message as a comment on the original ticket.
-                    return await request.addComment(commentText);
+                    return await request.addCommentFromMessageEvent(slackParams);
                 })
                 .catch((e) => {
                     logger("Exception thrown: Unable to send comment to Jira: " + e.toString());
@@ -61,14 +46,5 @@ const handlePostedThreadMessage = async (conn: SlackConnection,
 export const events: SlackEventList = {
     message: async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         return handlePostedThreadMessage(conn, slackParams);
-    },
-    // "message.groups": async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-    //     return handlePostedThreadMessage(conn, slackParams);
-    // },
-    // "message.im": async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-    //     return handlePostedThreadMessage(conn, slackParams);
-    // },
-    // "message.mpim": async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-    //     return handlePostedThreadMessage(conn, slackParams);
-    // },
+    }
 };

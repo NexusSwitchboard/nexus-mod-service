@@ -245,12 +245,26 @@ export default class ServiceRequest {
 
     /**
      * Takes the given text and adds a comment to the associated jira ticket.
-     * @param text The text of the comment.
+     * @param slackEventPayload
      */
-    public async addComment(text: string): Promise<JiraPayload> {
+    public async addCommentFromMessageEvent(slackEventPayload: SlackPayload): Promise<JiraPayload> {
+
+        const messageTs = findProperty(slackEventPayload, "ts");
+        const text = findProperty(slackEventPayload, "text");
+        const permaLink = await this.slack.apiAsBot.chat.getPermalink({
+            channel: this.thread.channel,
+            message_ts: messageTs
+        });
+
+        const slackDisplayName =
+            findProperty(this.user.slack, "display_name") ||
+            findProperty(this.user.slack, "real_name");
+
+        const finalText = `\n${text}\n----\n??Comment posted in [Slack|${permaLink.permalink}] by ${slackDisplayName}??`;
+
         return await this.jira.api.issueComments.addComment({
             issueIdOrKey: this.ticket.key,
-            body: this.jira.transformDescriptionText(text, 2)
+            body: this.jira.transformDescriptionText(finalText, 2)
         });
     }
 
