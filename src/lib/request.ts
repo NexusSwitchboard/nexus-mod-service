@@ -26,11 +26,18 @@ export interface IRequestParams {
     slackUserId?: string;
     title?: string;
     description?: string;
-    labels?: string[];
     priority?: string;
     messageTs?: string;
     channelId?: string;
-    reporterEmail?: string;
+    reporterEmail?: string,
+    components?: string[]
+    labels?: string[];
+}
+
+export interface ServiceComponent {
+    id: string,
+    name: string,
+    description: string
 }
 
 type JiraPayload = {
@@ -69,7 +76,7 @@ export default class ServiceRequest {
      */
     public static isBotMessage(msg: SlackPayload, username: string) {
         if (msg.subtype && msg.subtype === "bot_message") {
-            return msg.username === username;
+            return msg.username.toLowerCase() === username.toLowerCase();
         } else {
             return false;
         }
@@ -91,6 +98,8 @@ export default class ServiceRequest {
     protected config: NexusModuleConfig;
     protected slack: SlackConnection;
     protected jira: JiraConnection;
+
+    protected components: ServiceComponent[];
 
     // this is necessary so that we can hold on to the user id that is passed into the constructor and then
     //  used automatically when the reset is called immediately afterwards.
@@ -293,10 +302,11 @@ export default class ServiceRequest {
     protected async showCreateModal(triggerId: string, requestParams?: IRequestParams): Promise<boolean> {
 
         const requestId = this.thread.serializeId();
+        const components = await this.getJiraComponents();
 
         const modal = await this.slack.apiAsBot.views.open({
             trigger_id: triggerId,
-            view: getCreateRequestModalView(requestParams, requestId)
+            view: getCreateRequestModalView(requestParams, components, requestId)
         });
 
         return modal.ok;
@@ -403,7 +413,8 @@ export default class ServiceRequest {
                     priority: {
                         id: priorityId.toString()
                     },
-                    labels: request.labels || []
+                    labels: request.labels || [],
+                    components: request.components ? request.components.map((c) => {return {id: c}}) : []
                 }
             };
 
@@ -703,4 +714,38 @@ export default class ServiceRequest {
         }
     }
 
+    /**
+     * Retrieves all the components for the configured service project.  If the components havae already
+     * been retrieved for this instance of the request, then return them without making a request to jira.
+     */
+    private async getJiraComponents(): Promise<ServiceComponent[]> {
+
+        if (this.components) {
+            return this.components;
+        }
+
+        try {
+            const components = await this.jira.api.projectComponents.getProjectComponents({
+                projectIdOrKey: this.config.REQUEST_JIRA_PROJECT
+            });
+
+            this.components = components.map((c: JiraPayload) => {
+                return {
+                    id: c.id,
+                    name: c.name,
+                    description: c.description
+                }
+            });
+
+            return this.components;
+
+        } catch(e) {
+            logger("Exception thrown: Cannot retrieve components from Jira: " + e.toString());
+            return [{
+                id: this.config.REQUEST_JIRA_DEFAULT_COMPONENT_ID,
+                name: "Generic",
+                description: "This component is here because other components could not be retrieved."
+            }];
+        }
+    }
 }

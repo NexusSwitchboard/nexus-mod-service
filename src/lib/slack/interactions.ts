@@ -158,7 +158,7 @@ export const interactions: ISlackInteractionHandler[] = [{
                             title: values.summary,
                             description: values.description,
                             priority: "medium",
-                            labels: [values.category]
+                            components: [values.category]
                         }).catch((err) => {
                             logger("There was a problem processing the infra request submission: " + err.toString());
                         });
