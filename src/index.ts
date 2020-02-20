@@ -18,7 +18,7 @@ class ServiceModule extends NexusModule {
 
     public loadConfig(overrides?: NexusModuleConfig): NexusModuleConfig {
         const defaults = {
-
+            REQUEST_COMMAND_NAME: "",
             REQUEST_JIRA_PROJECT: "",
             REQUEST_JIRA_ISSUE_TYPE_ID: "",
             REQUEST_JIRA_EPIC: "",
@@ -27,19 +27,24 @@ class ServiceModule extends NexusModule {
             REQUEST_JIRA_EPIC_LINK_FIELD: "",
             REQUEST_JIRA_RESOLUTION_DISMISS: "",
             REQUEST_JIRA_RESOLUTION_DONE: "",
-
+            REQUEST_JIRA_DEFAULT_COMPONENT_ID: "",
+            REQUEST_COMPLETED_SLACK_ICON: "",
+            REQUEST_CANCELLED_SLACK_ICON: "",
+            REQUEST_CLAIMED_SLACK_ICON: "",
+            REQUEST_SUBMITTED_SLACK_ICON: "",
+            REQUEST_WORKING_SLACK_ICON: "",
+            REQUEST_EDITING_SLACK_ICON: "",
+            REQUEST_ERROR_SLACK_ICON: "",
+            SLACK_BOT_USERNAME: "",
             SLACK_APP_ID: "__env__",
             SLACK_CLIENT_ID: "__env__",
             SLACK_CLIENT_SECRET: "__env__",
             SLACK_SIGNING_SECRET: "__env__",
             SLACK_CLIENT_OAUTH_TOKEN: "__env__",
             SLACK_USER_OAUTH_TOKEN: "__env__",
-
             JIRA_HOST: "__env__",
             JIRA_USERNAME: "__env__",
-            JIRA_API_KEY: "__env__",
-
-            REQUEST_COMMAND_NAME: ""
+            JIRA_API_KEY: "__env__"
         };
 
         return overrides ? Object.assign({}, defaults, overrides) : {...defaults};

@@ -1,3 +1,4 @@
+
 /**
  * Given a map of from -> to strings, this will replace all occurrences
  * of each in the given string and return the string with replacements
@@ -8,7 +9,7 @@ export function replaceAll(str: string, mapObj: Record<string, string>) {
     const re = new RegExp(Object.keys(mapObj).join('|'), 'gi');
 
     return str.replace(re, (matched: string) => {
-        return mapObj[matched.toLowerCase()];
+        return mapObj[matched];
     });
 }
 

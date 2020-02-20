@@ -1,16 +1,18 @@
 # Service - Nexus Module
 The Service module provides functionality that provides ways of interacting with a service team through existing tools
 
-# Submit Service Request
+# Features
+1. Using either a slash command or _action_ to initiate the request dialog
+2. Creates an issue in Jira and allows users to update the status of the ticket from Slack.  
+3. All conversation that happens in the Slack thread associated with the request gets added as a comment to the Jira ticket.
 
-## Slack Integration
+# How It Works
 
-### Message Action
-A new action will appear in the actions menu named something like _Submit Service Request_ (when
-you create the slack app, you can specify whatever you want for the text).
+## Message Action
+A new action will appear in the actions menu named something like _Submit Service Request_ (when you create the slack app, you can specify whatever you want for the text).
 
 ### Slash Command
-There is a slash command invoked with `/request [description]` (you can call it whatever you want).   
+There is a slash command invoked with `/request [description]` (you can call it whatever you want).     
 
 ### Behavior
 No matter how a submission request is invoked, a modal appears allowing the user to enter request details.  
@@ -50,46 +52,72 @@ You will need the following configuration options set in the Slack App you creat
 ## Slack App Permissions
 The Slack App requires the following OAuth roles to function properly:
 
-* bot - Required for having a bot presence that can behave as a user and be mentioned and DM'd
-* channels:history - Required to pull message information from a channel
-* groups:history - Required to pull message information from a user's private chanel
-* im:history - Required to pull message information from the user's DMs
-* mpim:history - Required to pull message information from the users' multi-person DMs
-* users:read - Required to pull profile information needed to connect Jira with Slack
-* users:read.email - Required to pull user's email needed to connect Jira with Slack
-* users:profile:read - Required to pull users' display_name field (the @<name>)
-* chat:write:bot - Required to create new message as the app bot user
-* chat:write:user - Required to create new messages in the name of the initiating user.
+* *bot* - Required for having a bot presence that can behave as a user and be mentioned and DM'd
+* *channels:history* - Required to pull message information from a channel
+* *groups:history* - Required to pull message information from a user's private chanel
+* *im:history* - Required to pull message information from the user's DMs
+* *mpim:history* - Required to pull message information from the users' multi-person DMs
+* *users:read* - Required to pull profile information needed to connect Jira with Slack
+* *users:read.email* - Required to pull user's email needed to connect Jira with Slack
+* *users:profile:read* - Required to pull users' display_name field (the @<name>)
+* *chat:write:bot* - Required to create new message as the app bot user
+* *chat:write:user* - Required to create new messages in the name of the initiating user.
  
 ## Module Configuration
 
-    # This is the name of the slash command for initiating a request
-    REQUEST_COMMAND_NAME: "<command_name>",
+* `REQUEST_COMMAND_NAME: "<command_name>"`
+    * This is the name of the slash command for initiating a request
+
+* `REQUEST_JIRA_PROJECT: "<JIRA_KEY>"`   
+    * This is the project that new requests will be added to
     
-    # This is the project that new requests will be added to
-    REQUEST_JIRA_PROJECT: "<JIRA_KEY>",   
+* `REQUEST_JIRA_ISSUE_TYPE_ID: "<JIRA_ISSUE_TYPE_ID>"`
+    * This is the issue type for the tickets created
 
-    # This is the issue type for the tickets created
-    REQUEST_JIRA_ISSUE_TYPE_ID: "<JIRA_ISSUE_TYPE_ID>",
+* `REQUEST_JIRA_EPIC: "<JIRA_EPIC_PARENT_KEY>"`
+    * This is the epic under which the ticket will be created
 
-    # This is the epic under which the ticket will be created
-    REQUEST_JIRA_EPIC: "<JIRA_EPIC_PARENT_KEY>",
+* `REQUEST_JIRA_START_TRANSITION_ID: 21`
+    * This is the transition to use to set the status to some form of _In Progress_
 
-    # This is the transition to use to set the status to some form of _In Progress_
-    REQUEST_JIRA_START_TRANSITION_ID: 21,
+* `REQUEST_JIRA_COMPLETE_TRANSITION_ID: 31`
+    *  This is the transition  to use to set the status to some form of _Done_ (note that cancel and complete use the same transition but the resolution is set to "Done" for complete and "Won't Do" for cancelled)
 
-    # This is the transition  to use to set the status to some form of _Done_ (note that cancel and complete use the same transition but the resolution is set to "Done" for complete and "Won't Do" for cancelled)
-    REQUEST_JIRA_COMPLETE_TRANSITION_ID: 31,
+* `REQUEST_JIRA_EPIC_LINK_FIELD": "customfield_10800"`
+    * This is the "custom" field name that represents the epic field used for "standard" issue types.  If not given, then it is assumed that we can simply use the REQUEST_JIRA_EPIC as if it were a parent (which is valid for newer issue types).
 
-    # This is the "custom" field name that represents the epic field used for "standard" issue types.  If not given, then it is assumed that we can simply use the REQUEST_JIRA_EPIC as if it were a parent (which is valid for newer issue types).
-    REQUEST_JIRA_EPIC_LINK_FIELD": "customfield_10800"
+* `REQUEST_JIRA_RESOLUTION_DISMISS": "Won't Do"`
+    * The name of the resolution to use when someone cancels a request.  
+
+* `REQUEST_JIRA_RESOLUTION_DONE": "Done"`
+    * The name of the resolution to use when someone completes a request
+
+* `REQUEST_JIRA_DEFAULT_COMPONENT_ID: ""`
+    * The ID of the comonent to use if no component is given during issue creation
     
-    # The name of the resolution to use when someone cancels a request.  
-    REQUEST_JIRA_RESOLUTION_DISMISS": "Won't Do"
-    
-    # The name of the resolution to use when someone completes a request
-    REQUEST_JIRA_RESOLUTION_DONE": "Done"
+* `REQUEST_COMPLETED_SLACK_ICON: ""`
+    * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
+* `REQUEST_CANCELLED_SLACK_ICON: ""`
+    * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
 
+* `REQUEST_CLAIMED_SLACK_ICON: ""`
+    * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
+
+* `REQUEST_SUBMITTED_SLACK_ICON: ""`
+    * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
+
+* `REQUEST_WORKING_SLACK_ICON: ""`
+    * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
+
+* `REQUEST_EDITING_SLACK_ICON: ""`
+    * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
+
+* `REQUEST_ERROR_SLACK_ICON: ""`
+    * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
+
+* `SLACK_BOT_USERNAME: ""`
+    * The name of the bot user given in your Slack app.  If this does not match (case insensitive) then the module will not be able to correctly identify its own messages which will cause some problems during ticket status updates in Slack.
+    
 The following are connection-specific configuration options:
 
 * *SERVICE*_SLACK_APP_ID: [`string`]

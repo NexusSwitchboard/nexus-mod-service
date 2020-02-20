@@ -10,7 +10,7 @@ import moduleInstance from '..';
 import { logger } from '..';
 import { SlackMessageId } from './slackMessageId';
 import { RequestThread } from './requestThread';
-import { prepTitleAndDescription } from './util';
+import { prepTitleAndDescription, replaceAll } from './util';
 
 export enum RequestState {
     todo = 'todo',
@@ -269,7 +269,8 @@ export default class ServiceRequest {
             findProperty(this.user.slack, 'display_name') ||
             findProperty(this.user.slack, 'real_name');
 
-        const finalText = `\n${text}\n----\n??Comment posted in [Slack|${permaLink.permalink}] by ${slackDisplayName}??`;
+        const nameReplacementText = await this.replaceSlackUserIdsWithNames(text);
+        const finalText = `\n${nameReplacementText}\n~Comment posted in [Slack|${permaLink.permalink}] by ${slackDisplayName}~`;
 
         return await this.jira.api.issueComments.addComment({
             issueIdOrKey: this.ticket.key,
@@ -541,6 +542,35 @@ export default class ServiceRequest {
         }
     }
 
+    /**
+     * For a given string, this will find all slack user IDs in the form <@{ID}>
+     *     and replace with the actual name of the user (if found).
+     * @param msg The message to search for slack user IDs in.
+     * @return The message with replacements made.
+     */
+    private async replaceSlackUserIdsWithNames(msg: string): Promise<string> {
+        const ids: Record<string, any> = {};
+        for (const m of msg.matchAll(/<@(?<id>[A-Z0-9]*)>/gi)) {
+            ids[m.groups.id] = '';
+        }
+
+        const replacements: Record<string, any> = {};
+        if (Object.keys(ids).length > 0) {
+            await Promise.all(Object.keys(ids).map(async (id) => {
+                return this.getSlackUser(id)
+                    .then((user) => {
+                        replacements[`<@${id}>`] = getNestedVal(user, 'real_name');
+                    })
+                    .catch((e) => {
+                        logger('Unable to get slack user for ID ' + id + ': ' + e.toString());
+                    });
+            }));
+
+            return replaceAll(msg, replacements);
+        }
+
+        return msg;
+    }
 
     /**
      * Maps an issue's status to a request state.
