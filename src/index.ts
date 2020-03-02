@@ -1,11 +1,11 @@
 import createDebug from "debug";
-import {Router} from "express";
-import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
+import { Application } from 'express';
+import {JiraConnection, IWebhookPayload} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
 import {
-    ConnectionRequestDefinition,
+    ConnectionRequest,
     NexusModule,
-    NexusModuleConfig
+    ModuleConfig
 } from "@nexus-switchboard/nexus-extend";
 import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
@@ -16,7 +16,7 @@ export const logger = createDebug("nexus:service");
 class ServiceModule extends NexusModule {
     public name = "service";
 
-    public loadConfig(overrides?: NexusModuleConfig): NexusModuleConfig {
+    public loadConfig(overrides?: ModuleConfig): ModuleConfig {
         const defaults = {
             REQUEST_COMMAND_NAME: "",
             REQUEST_JIRA_PROJECT: "",
@@ -52,16 +52,35 @@ class ServiceModule extends NexusModule {
 
     // most modules will use at least one connection.  This will allow the user to instantiate the connections
     //  and configure them using configuration that is specific to this module.
-    public loadConnections(config: NexusModuleConfig,
-                           router: Router): ConnectionRequestDefinition[] {
+    public loadConnections(config: ModuleConfig,
+                           subApp: Application): ConnectionRequest[] {
         return [
             {
                 name: "nexus-conn-jira",
                 config: {
                     host: config.JIRA_HOST,
                     username: config.JIRA_USERNAME,
-                    apiToken: config.JIRA_API_KEY
+                    apiToken: config.JIRA_API_KEY,
 
+                    subApp,
+
+                    addon: {
+                        key: "service-addon",
+                        name: "Infrabot Jira Addon"
+                    },
+
+                    baseUrl: "https://infrabot.ngrok.io/m/service",
+
+                    webhooks: [
+                        {
+                            definition: {
+                                event: "jira:issue_created"
+                            },
+                            handler: async (_payload: IWebhookPayload) => {
+                                logger("here");
+                            }
+                        }
+                    ]
                 }
             },
             {
@@ -80,7 +99,7 @@ class ServiceModule extends NexusModule {
                         defaultSubCommand: "default"
                     }],
                     interactionListeners: interactions,
-                    router,
+                    subApp,
                 }
             }];
     }

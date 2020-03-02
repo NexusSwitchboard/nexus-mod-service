@@ -1,6 +1,6 @@
 import { SlackMessageId } from './slackMessageId';
 import { logger } from '..';
-import { NexusModuleConfig } from '@nexus-switchboard/nexus-extend';
+import { ModuleConfig } from '@nexus-switchboard/nexus-extend';
 import { RequestState } from './request';
 import { JiraTicket } from '@nexus-switchboard/nexus-conn-jira';
 import { SlackBlock, SlackConnection } from '@nexus-switchboard/nexus-conn-slack';
@@ -44,9 +44,9 @@ export class RequestThread {
     public slackMessageId: SlackMessageId;
     protected ticket: JiraTicket;
     protected slack: SlackConnection;
-    protected config: NexusModuleConfig;
+    protected config: ModuleConfig;
 
-    constructor(ts: string, channel: string, slack: SlackConnection, config: NexusModuleConfig) {
+    constructor(ts: string, channel: string, slack: SlackConnection, config: ModuleConfig) {
         this.slackMessageId = new SlackMessageId(channel, ts);
         this.slack = slack;
         this.config = config;

@@ -7,7 +7,7 @@ import {
 } from '@nexus-switchboard/nexus-conn-slack';
 
 import assert from 'assert';
-import { findNestedProperty, findProperty, getNestedVal, NexusModuleConfig } from '@nexus-switchboard/nexus-extend';
+import { findNestedProperty, findProperty, getNestedVal, ModuleConfig } from '@nexus-switchboard/nexus-extend';
 import { SlackMessageId } from '../slackMessageId';
 import { logger } from '../..';
 import ServiceRequest from '../../lib/request';
@@ -26,7 +26,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     handler: async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         assert(slackParams.actions && slackParams.actions.length > 0, 'Received slack action event but actions array appears to be empty');
 
-        const config = moduleInstance.getActiveConfig();
+        const config = moduleInstance.getActiveModuleConfig();
 
         if (slackParams.actions[0].value === 'view_request') {
             return {
@@ -191,7 +191,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     type: SlackInteractionType.viewClosed,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-        const modConfig = moduleInstance.getActiveConfig();
+        const modConfig = moduleInstance.getActiveModuleConfig();
 
         const metaData = findProperty(slackParams, 'private_metadata');
         if (metaData) {
@@ -215,7 +215,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     }
 }];
 
-const updateActionBar = (msg: string, conn: SlackConnection, slackParams: SlackPayload, config: NexusModuleConfig) => {
+const updateActionBar = (msg: string, conn: SlackConnection, slackParams: SlackPayload, config: ModuleConfig) => {
 
     const blocks = RequestThread.buildActionBarHeader();
     blocks.push({

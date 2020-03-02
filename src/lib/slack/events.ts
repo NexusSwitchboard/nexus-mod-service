@@ -11,7 +11,7 @@ import ServiceRequest from "../../lib/request";
 const handlePostedThreadMessage = async (_conn: SlackConnection,
                                          slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-    const config = moduleInstance.getActiveConfig();
+    const config = moduleInstance.getActiveModuleConfig();
 
     // ignore any message that is posted by a bot.
     if (!ServiceRequest.isBotMessage(slackParams.message || slackParams, config.SLACK_BOT_USERNAME)) {

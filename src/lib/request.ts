@@ -3,7 +3,7 @@ import assert from 'assert';
 
 import { JiraConnection, JiraTicket } from '@nexus-switchboard/nexus-conn-jira';
 import { SlackConnection, SlackPayload, SlackWebApiResponse } from '@nexus-switchboard/nexus-conn-slack';
-import { findProperty, getNestedVal, hasOwnProperties, NexusModuleConfig } from '@nexus-switchboard/nexus-extend';
+import { findProperty, getNestedVal, hasOwnProperties, ModuleConfig } from '@nexus-switchboard/nexus-extend';
 
 import { getCreateRequestModalView } from './slack/createRequestModal';
 import moduleInstance from '..';
@@ -95,7 +95,7 @@ export default class ServiceRequest {
     protected ticket: JiraTicket;
 
     // stores the configuration information for the module.
-    protected config: NexusModuleConfig;
+    protected config: ModuleConfig;
     protected slack: SlackConnection;
     protected jira: JiraConnection;
 
@@ -107,7 +107,7 @@ export default class ServiceRequest {
 
 
     private constructor(channel: string, ts: string, slackUserId: string) {
-        this.config = moduleInstance.getActiveConfig();
+        this.config = moduleInstance.getActiveModuleConfig();
         this.slack = moduleInstance.getSlack();
         this.jira = moduleInstance.getJira();
         this.thread = new RequestThread(ts, channel, this.slack, this.config);
@@ -140,7 +140,7 @@ export default class ServiceRequest {
     public static async createNewThread(slackUserId: string, channelId: string, requestText: string, triggerId: string) {
 
         const slack = moduleInstance.getSlack();
-        const config = moduleInstance.getActiveConfig();
+        const config = moduleInstance.getActiveModuleConfig();
 
         slack.apiAsBot.chat.postMessage({
                 channel: channelId,
@@ -579,7 +579,7 @@ export default class ServiceRequest {
     private getIssueState(): RequestState {
 
         const cat: string = getNestedVal(this.ticket, 'fields.status.statusCategory.name');
-        const config = moduleInstance.getActiveConfig();
+        const config = moduleInstance.getActiveModuleConfig();
 
         if (cat.toLowerCase() === 'to do') {
             return RequestState.todo;
