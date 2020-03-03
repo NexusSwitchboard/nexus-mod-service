@@ -18,9 +18,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nexus-switchboard/nexus-conn-jira": "^0.1.0",
-    "@nexus-switchboard/nexus-conn-slack": "^0.2.0",
-    "@nexus-switchboard/nexus-extend": "^0.5.0",
+    "@nexus-switchboard/nexus-conn-jira": "^0.1.2",
+    "@nexus-switchboard/nexus-conn-slack": "^0.2.2",
+    "@nexus-switchboard/nexus-extend": "^0.5.1",
     "@slack/web-api": "^5.7.0",
     "assert": "^2.0.0",
     "debug": "^4.1.1",
