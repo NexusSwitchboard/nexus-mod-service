@@ -69,7 +69,7 @@ class ServiceModule extends NexusModule {
                         name: "Infrabot Jira Addon"
                     },
 
-                    baseUrl: "https://infrabot.ngrok.io/m/service",
+                    baseUrl: `${this.globalConfig.baseUrl}${this.moduleRootPath}`,
 
                     webhooks: [
                         {
