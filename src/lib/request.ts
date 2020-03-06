@@ -92,7 +92,7 @@ export default class ServiceRequest {
 
     // stores the actual ticket associated with the thread.  This could be empty if the user is still entering
     //  information about the request and the jira ticket has not yet been created.
-    protected ticket: JiraTicket;
+    protected _ticket: JiraTicket;
 
     // stores the configuration information for the module.
     protected config: ModuleConfig;
@@ -110,7 +110,7 @@ export default class ServiceRequest {
         this.config = moduleInstance.getActiveModuleConfig();
         this.slack = moduleInstance.getSlack();
         this.jira = moduleInstance.getJira();
-        this.thread = new RequestThread(ts, channel, this.slack, this.config);
+        this.thread = new RequestThread(ts, channel, this.slack, this.jira, this.config);
         this.slackUserId = slackUserId;
     }
 
@@ -158,6 +158,15 @@ export default class ServiceRequest {
 
             return request;
         });
+    }
+
+    public set ticket(ticket: JiraTicket) {
+        this._ticket = ticket;
+        this.thread.ticket = ticket;
+    }
+
+    public get ticket(): JiraTicket {
+        return this._ticket;
     }
 
     /**
@@ -225,29 +234,36 @@ export default class ServiceRequest {
 
     public async create(params: IRequestParams): Promise<boolean> {
 
-        await this.updateState(RequestState.working, 'Working on your request...');
+        try {
 
-        // check to see if there is already a request associated with this.
-        if (this.ticket) {
-            await this.addErrorReply('There is already a request associated with this message: ' +
-                `<${this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key)}|` +
-                `${this.ticket.key} - ${this.ticket.fields.summary}>`);
-            return false;
-        }
+            await this.updateState(RequestState.working, 'Working on your request...');
 
-        // Now we will construct the ticket parameter starting with the labels.  We submit the
-        //  encoded form of the slack message id in order to connect the jira ticket with the
-        //  message which started it all.
-        const requiredLabels = ['infrabot-request', this.thread.serializeId()];
-        params.labels = params.labels ? requiredLabels.concat(params.labels) : requiredLabels;
+            // check to see if there is already a request associated with this.
+            if (this.ticket) {
+                await this.addErrorReply('There is already a request associated with this message: ' +
+                    `<${this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key)}|` +
+                    `${this.ticket.key} - ${this.ticket.fields.summary}>`);
+                return false;
+            }
 
-        const ticket = await this.createTicket(params);
-        if (ticket) {
-            this.ticket = ticket;
-            await this.updateState(RequestState.todo);
-            return true;
-        } else {
-            await this.updateState(RequestState.error, 'There was a problem submitting the issue to Jira.');
+            // Now we will construct the ticket parameter starting with the labels.  We submit the
+            //  encoded form of the slack message id in order to connect the jira ticket with the
+            //  message which started it all.
+            const requiredLabels = ['infrabot-request', this.thread.serializeId()];
+            params.labels = params.labels ? requiredLabels.concat(params.labels) : requiredLabels;
+
+            const ticket = await this.createTicket(params);
+            if (ticket) {
+                this.thread.reporterSlackId = this.slackUserId;
+                this.ticket = ticket;
+                await this.updateState(RequestState.todo);
+                return true;
+            } else {
+                await this.updateState(RequestState.error, 'There was a problem submitting the issue to Jira.');
+                return false;
+            }
+        } catch (e) {
+            logger("Exception thrown: During ticket creation:  " + e.toString());
             return false;
         }
     }
@@ -258,24 +274,30 @@ export default class ServiceRequest {
      */
     public async addCommentFromMessageEvent(slackEventPayload: SlackPayload): Promise<JiraPayload> {
 
-        const messageTs = findProperty(slackEventPayload, 'ts');
-        const text = findProperty(slackEventPayload, 'text');
-        const permaLink = await this.slack.apiAsBot.chat.getPermalink({
-            channel: this.thread.channel,
-            message_ts: messageTs
-        });
+        try {
 
-        const slackDisplayName =
-            findProperty(this.user.slack, 'display_name') ||
-            findProperty(this.user.slack, 'real_name');
+            const messageTs = findProperty(slackEventPayload, 'ts');
+            const text = findProperty(slackEventPayload, 'text');
+            const permaLink = await this.slack.apiAsBot.chat.getPermalink({
+                channel: this.thread.channel,
+                message_ts: messageTs
+            });
 
-        const nameReplacementText = await this.replaceSlackUserIdsWithNames(text);
-        const finalText = `\n${nameReplacementText}\n~Comment posted in [Slack|${permaLink.permalink}] by ${slackDisplayName}~`;
+            const slackDisplayName =
+                findProperty(this.user.slack, 'display_name') ||
+                findProperty(this.user.slack, 'real_name');
 
-        return await this.jira.api.issueComments.addComment({
-            issueIdOrKey: this.ticket.key,
-            body: this.jira.transformDescriptionText(finalText, 2)
-        });
+            const nameReplacementText = await this.replaceSlackUserIdsWithNames(text);
+            const finalText = `\n${nameReplacementText}\n~Comment posted in [Slack|${permaLink.permalink}] by ${slackDisplayName}~`;
+
+            return await this.jira.api.issueComments.addComment({
+                issueIdOrKey: this.ticket.key,
+                body: this.jira.transformDescriptionText(finalText, 2)
+            });
+        } catch (e) {
+            logger("Exception thrown: During an attempt to post a comment to Jira: " + e.toString());
+            return undefined;
+        }
     }
 
     /**
@@ -283,14 +305,20 @@ export default class ServiceRequest {
      * @param slackUserId
      */
     public async getUserInfoFromSlackUserId(slackUserId: string): Promise<RequestUser> {
-        const slackUser = await this.getSlackUser(slackUserId);
-        if (slackUser) {
-            const jiraUser = await this.getJiraUser(slackUser.profile.email);
-            return {
-                slack: slackUser,
-                jira: jiraUser
-            };
-        } else {
+
+        try {
+            const slackUser = await this.getSlackUser(slackUserId);
+            if (slackUser) {
+                const jiraUser = await this.getJiraUser(slackUser.profile.email);
+                return {
+                    slack: slackUser,
+                    jira: jiraUser
+                };
+            } else {
+                return undefined;
+            }
+        } catch(e) {
+            logger("Exception thrown: Trying to get information about a user from slack: " + e.toString());
             return undefined;
         }
     }
@@ -302,27 +330,36 @@ export default class ServiceRequest {
      */
     protected async showCreateModal(triggerId: string, requestParams?: IRequestParams): Promise<boolean> {
 
-        const requestId = this.thread.serializeId();
-        const components = await this.getJiraComponents();
+        try {
+            const requestId = this.thread.serializeId();
+            const components = await this.getJiraComponents();
 
-        const modal = await this.slack.apiAsBot.views.open({
-            trigger_id: triggerId,
-            view: getCreateRequestModalView(requestParams, components, requestId)
-        });
+            const modal = await this.slack.apiAsBot.views.open({
+                trigger_id: triggerId,
+                view: getCreateRequestModalView(requestParams, components, requestId)
+            });
 
-        return modal.ok;
+            return modal.ok;
+        } catch (e) {
+            logger("Exception thrown: Trying to show the create modal: " + e.toString());
+            return false;
+        }
     }
 
     protected async reset() {
 
-        this.ticket = await this.findTicketByMessageId(this.thread.slackMessageId);
+        try {
+            await this.loadTicketFromMessageId(this.thread.slackMessageId);
 
-        if (!this.user || !this.user.slack || this.user.slack.id !== this.slackUserId) {
-            this.user = await this.getUserInfoFromSlackUserId(this.slackUserId);
-            if (!this.user.slack) {
-                throw new Error('There was a problem loading the slack user info for user with ID: ' +
-                    this.slackUserId);
+            if (!this.user || !this.user.slack || this.user.slack.id !== this.slackUserId) {
+                this.user = await this.getUserInfoFromSlackUserId(this.slackUserId);
+                if (!this.user.slack) {
+                    throw new Error("There was a problem loading the slack user info for user with ID: " +
+                        this.slackUserId);
+                }
             }
+        } catch (e) {
+            logger(`Exception thrown: Unable to find to reset the request object:` + e.toString());
         }
     }
 
@@ -344,10 +381,15 @@ export default class ServiceRequest {
     }
 
     protected async getSlackUser(userId: string): Promise<SlackPayload> {
-        const userInfo = await this.slack.apiAsBot.users.info({ user: userId }) as SlackWebApiResponse;
-        if (userInfo && userInfo.ok) {
-            return userInfo.user;
-        } else {
+        try {
+            const userInfo = await this.slack.apiAsBot.users.info({ user: userId }) as SlackWebApiResponse;
+            if (userInfo && userInfo.ok) {
+                return userInfo.user;
+            } else {
+                return undefined;
+            }
+        } catch (e) {
+            logger("Exception thrown: Trying to get user details from a user ID: " + e.toString());
             return undefined;
         }
     }
@@ -355,18 +397,18 @@ export default class ServiceRequest {
     /**
      * Search for a ticket based on a unique Slack TS value (slack timestamp).
      */
-    protected async findTicketByMessageId(message: SlackMessageId): Promise<JiraTicket> {
+    protected async loadTicketFromMessageId(message: SlackMessageId): Promise<any> {
         try {
             const jql = `labels in ("${message.buildRequestId()}") and labels in ("infrabot-request")`;
             const results = await this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
                 jql,
-                fields: ['*all']
+                fields: ['*all'],
+                properties: ["infrabot"]
             });
 
-            if (results.total === 1) {
-                return results.issues[0];
-            } else if (results.total > 1) {
-                return results.issues[0];
+            if (results.total >= 1) {
+                this.ticket = results.issues[0];
+                this.thread.loadJiraIssueProperties();
             } else {
                 return undefined;
             }
@@ -380,16 +422,14 @@ export default class ServiceRequest {
      * Creates a request ticket in Jira.
      */
     protected async createTicket(request: IRequestParams): Promise<JiraTicket> {
-        assert(this.config.REQUEST_JIRA_ISSUE_TYPE_ID, 'Service Mod: Attempting to create a ticket without a valid Jira Issue Type config  set');
-        assert(this.config.REQUEST_JIRA_PROJECT, 'Service Mod: Attempting to create a ticket without a valid Jira Project config  set');
-
-        let priorityId = await this.jira.getPriorityIdFromName(request.priority);
-        if (!priorityId) {
-            logger(`Unable to find the priority "${request.priority}" so defaulting to medium (2)`);
-            priorityId = 2;
-        }
-
         try {
+            // Get the priority ID from a given priority name.
+            let priorityId = await this.jira.getPriorityIdFromName(request.priority);
+            if (!priorityId) {
+                logger(`Unable to find the priority "${request.priority}" so defaulting to medium (2)`);
+                priorityId = 2;
+            }
+
             // Note: In ticket creation, we remove invalid characters from title -
             //  jira will reject any summary that has a newline in it, for example
             // tslint:disable-next-line:prefer-const
@@ -421,7 +461,18 @@ export default class ServiceRequest {
                     components: request.components ? request.components.map((c) => {
                         return { id: c };
                     }) : []
-                }
+                },
+                properties: [
+                    {
+                        key: "infrabot",
+                        value: {
+                            channelId: this.thread.channel,
+                            threadId: this.thread.ts,
+                            actionMsgId: "",
+                            reporterSlackId: this.slackUserId
+                        }
+                    }
+                ]
             };
 
             // first create the issue
@@ -606,36 +657,31 @@ export default class ServiceRequest {
      * @param messageToUpdateTs If given, it will try and replace the given message
      */
     public async addErrorReply(msg: string, messageToUpdateTs?: string) {
-        return this.addReply({ text: `:x: ${msg}` }, messageToUpdateTs);
-    }
-
-    /**
-     * Posts a message to the right slack thread with a standard success format.
-     * @param msg
-     * @param messageToUpdateTs If given, it will try and replace the given message
-     */
-    public async addInfoReply(msg: string, messageToUpdateTs?: string) {
-        return this.addReply({ text: `:white_check_mark: ${msg}` }, messageToUpdateTs);
+        await this.addReply({ text: `:x: ${msg}` }, messageToUpdateTs);
     }
 
     /**
      * This will add or replace a post to the right channel.  The slack payload given is the same as the payload
-     * you would use when posting a message but it will handle things like
+     * you would use when posting a message but it will handle replace an exisiting message if a `ts` is given.  It
+     * then will return the created or updated ts if successful
      * @param messageParams
-     * @param updateSpecificMessageTs
+     * @param ts
      */
-    public async addReply(messageParams: SlackPayload, updateSpecificMessageTs?: string) {
-        if (updateSpecificMessageTs) {
+    public async addReply(messageParams: SlackPayload, ts?: string): Promise<string> {
+        if (ts) {
             const options: ChatUpdateArguments = Object.assign(
                 {}, {
                     text: '',
                     channel: this.thread.channel,
-                    ts: updateSpecificMessageTs
+                    ts
                 }, messageParams);
 
 
             try {
-                await this.slack.apiAsBot.chat.update(options);
+                const result = await this.slack.apiAsBot.chat.update(options);
+                if (result.ok) {
+                    return result.ts as string;
+                }
             } catch (e) {
                 logger('Exception thrown: Failed to update the top reply in the thread: ' + e.toString());
             }
@@ -647,13 +693,25 @@ export default class ServiceRequest {
                 thread_ts: this.thread.ts
             }, messageParams);
 
-            await this.slack.apiAsBot.chat.postMessage(options);
+            try {
+                const result = await this.slack.apiAsBot.chat.postMessage(options);
+                if (result.ok) {
+                    return result.ts as string;
+                }
+            } catch (e) {
+                logger('Exception thrown: Unable to create a reply in the thread: ' + e.toString());
+            }
         }
+
+        return undefined;
     }
 
     public async updateState(state: RequestState, msg?: string) {
-        this.updateTopLevelMessage(state, msg);
-        this.updateActionBar(state);
+        if  (!!this.thread.ticket !== !!this.ticket) {
+            assert(false);
+        }
+        await this.updateTopLevelMessage(state, msg);
+        await this.updateActionBar(state);
     }
 
     /**
@@ -672,10 +730,14 @@ export default class ServiceRequest {
         }
 
         try {
-            this.addReply({
+            const ts = await this.addReply({
                 text: 'Action Bar',
                 blocks: this.thread.buildActionBlocks(state, this.ticket, jiraLink)
             }, header ? header.ts : undefined);
+
+            if (ts) {
+                await this.thread.setActionThread(ts);
+            }
         } catch (e) {
             logger('Exception thrown: Unable to add the action bar probably because there\'s already a first ' +
                 'message in the thread that has been added by someone other than the bot');

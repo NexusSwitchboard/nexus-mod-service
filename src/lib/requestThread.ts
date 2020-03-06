@@ -1,33 +1,34 @@
-import { SlackMessageId } from './slackMessageId';
-import { logger } from '..';
-import { ModuleConfig } from '@nexus-switchboard/nexus-extend';
-import { RequestState } from './request';
-import { JiraTicket } from '@nexus-switchboard/nexus-conn-jira';
-import { SlackBlock, SlackConnection } from '@nexus-switchboard/nexus-conn-slack';
-import { replaceAll } from './util';
+import { SlackMessageId } from "./slackMessageId";
+import { logger } from "..";
+import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
+import { RequestState } from "./request";
+import { JiraTicket, JiraConnection } from "@nexus-switchboard/nexus-conn-jira";
+import { SlackBlock, SlackConnection } from "@nexus-switchboard/nexus-conn-slack";
+import { replaceAll } from "./util";
+import assert from "assert";
 
 export const claimButton: IssueAction = {
-    code: 'claim_request',
-    name: 'Claim',
-    style: 'primary'
+    code: "claim_request",
+    name: "Claim",
+    style: "primary"
 };
 
 export const cancelButton: IssueAction = {
-    code: 'cancel_request',
-    name: 'Cancel',
-    style: 'danger'
+    code: "cancel_request",
+    name: "Cancel",
+    style: "danger"
 };
 
 export const completeButton: IssueAction = {
-    code: 'complete_request',
-    name: 'Complete',
-    style: 'primary'
+    code: "complete_request",
+    name: "Complete",
+    style: "primary"
 };
 
 export const viewButton: IssueAction = {
-    code: 'view_request',
-    name: 'View Ticket',
-    style: 'primary',
+    code: "view_request",
+    name: "View Ticket",
+    style: "primary",
     url: undefined
 };
 
@@ -35,21 +36,51 @@ export const viewButton: IssueAction = {
 export type IssueAction = {
     code: string,
     name: string,
-    style?: 'primary' | 'danger',
+    style?: "primary" | "danger",
     url?: string
+};
+
+export type JiraIssueSidecarData = {
+    issueIdOrKey?: string,
+    propertyKey?: string,
+    channelId: string,
+    threadId: string,
+    actionMsgId: string,
+    reporterSlackId: string
 };
 
 export class RequestThread {
 
     public slackMessageId: SlackMessageId;
-    protected ticket: JiraTicket;
+    public actionMessageId: SlackMessageId;
+
+    protected _reporterSlackId: string;
+    protected _ticket: JiraTicket;
     protected slack: SlackConnection;
+    protected jira: JiraConnection;
     protected config: ModuleConfig;
 
-    constructor(ts: string, channel: string, slack: SlackConnection, config: ModuleConfig) {
+    constructor(ts: string, channel: string, slack: SlackConnection, jira: JiraConnection, config: ModuleConfig) {
         this.slackMessageId = new SlackMessageId(channel, ts);
         this.slack = slack;
+        this.jira = jira;
         this.config = config;
+    }
+
+    public get ticket(): JiraTicket {
+        return this._ticket;
+    }
+
+    public set ticket(val: JiraTicket) {
+        this._ticket = val;
+    }
+
+    public get reporterSlackId(): string {
+        return this._reporterSlackId;
+    }
+
+    public set reporterSlackId(val: string) {
+        this._reporterSlackId = val;
     }
 
     public get channel(): string {
@@ -60,64 +91,122 @@ export class RequestThread {
         return this.slackMessageId.ts;
     }
 
+
     public serializeId(): string {
         return this.slackMessageId.buildRequestId();
     }
 
-    public async getTopLevelMessageId() {
-        return this.slackMessageId;
+    public async setActionThread(ts: string) {
+        if (!this.actionMessageId) {
+            this.actionMessageId = new SlackMessageId(this.slackMessageId.channel, ts);
+        } else {
+            this.actionMessageId.ts = ts;
+        }
+
+        await this.saveJiraIssueProperties();
     }
 
-    public async getThreadHeaderMessageId(): Promise<SlackMessageId> {
-        if (!this.slackMessageId.ts) {
-            throw new Error('You cannot find a status reply without an existing source thread');
+    /**
+     * This will save the infrabot properties on the  associated jira ticket (in  Jira).  This includes
+     * the action message ID and the originating slack user.
+     */
+    protected async saveJiraIssueProperties() {
+        if (!this.ticket) {
+            return;
         }
 
         try {
-            const messages = await this.slack.getChannelThread(this.slackMessageId.channel,
-                this.slackMessageId.ts);
+            await this.jira.api.issueProperties.setIssueProperty({
+                issueIdOrKey: this.ticket.key,
+                propertyKey: "infrabot",
+                channelId: this.slackMessageId.channel,
+                threadId: this.slackMessageId.ts,
+                actionMsgId: this.actionMessageId.ts,
+                reporterSlackId: this.reporterSlackId
+            });
+        } catch (e) {
+            logger("Exception thrown: Unable to set issue property data on an issue: " + e.toString());
+        }
+    }
 
-            // pull only the messages that belong to the bot.
-            const botMessages = messages.filter((m) => m.hasOwnProperty('username') &&
-                m.username.toLowerCase() === this.config.SLACK_BOT_USERNAME.toLowerCase());
+    /**
+     * This will load the infrabot properties associated  with the jira ticket (in  Jira).  This includes
+     * the action message ID and the originating slack user.
+     */
+    public async loadJiraIssueProperties(): Promise<any> {
+        if (!this.ticket) {
+            return undefined;
+        }
 
-            // the first one will be the originating message which should always be the bots.
-            if (botMessages.length > 1) {
-                return new SlackMessageId(this.slackMessageId.channel, botMessages[1].ts);
+        try {
+            let props: JiraIssueSidecarData = getNestedVal(this.ticket, "properties.infrabot");
+            if (!props) {
+                const result = await this.jira.api.issueProperties.getIssueProperty({
+                    issueIdOrKey: this.ticket.key,
+                    propertyKey: "infrabot"
+                });
+
+                if (result) {
+                    props = result.value;
+                }
+            }
+
+            if (props) {
+                assert(props.channelId === this.channel);
+                this.actionMessageId = new SlackMessageId(this.channel, props.actionMsgId);
+                this.reporterSlackId = props.reporterSlackId;
             } else {
+                logger("There was no valid infrabot property found on issue " + this.ticket.key);
+            }
+        } catch (e) {
+            logger("Exception thrown: Unable to get issue property data on an issue: " + e.toString());
+        }
+
+        return undefined;
+    }
+
+    public async getThreadHeaderMessageId(): Promise<SlackMessageId> {
+        try {
+            if (!this.slackMessageId.ts) {
+                logger("You cannot find a status reply without an existing source thread");
                 return undefined;
             }
 
+            if (!this.actionMessageId) {
+                await this.loadJiraIssueProperties();
+            }
+
+            return this.actionMessageId;
         } catch (e) {
-            logger('Exception thrown: Unable to find status reply message due to this error: ' + e.toString());
+            logger("Exception thrown: When trying to get the action bar message ID: " + e.toString());
             return undefined;
         }
     }
 
     protected getSectionBlockFromText(text: string): SlackBlock {
         return {
-            type: 'section',
+            type: "section",
             text: {
-                type: 'mrkdwn',
+                type: "mrkdwn",
                 text
             }
         };
     }
 
     protected getDividerBlock(): SlackBlock {
-        return { type: 'divider' };
+        return { type: "divider" };
     }
 
     protected getContextBlock(text: string[]): SlackBlock {
         const elements = text.map((t) => {
             return {
-                type: 'mrkdwn',
+                type: "mrkdwn",
                 text: t
             };
         });
 
         return {
-            type: 'context',
+            type: "context",
             elements
         };
     }
@@ -147,21 +236,7 @@ export class RequestThread {
         }
 
         // Last Action Taken (based on message and state parameter
-        let status = '';
-        if (state === RequestState.todo) {
-            status = `Issue submitted by <@${slackUserId}>`;
-        } else if (state === RequestState.claimed) {
-            status = `Issue claimed by <@${slackUserId}>`;
-        } else if (state === RequestState.complete) {
-            status = `Issue completed by <@${slackUserId}>`;
-        } else if (state === RequestState.cancelled) {
-            status = `Issue cancelled by <@${slackUserId}>`;
-        } else if (state === RequestState.error) {
-            status = `${msg ? msg : 'Ummm... there was a problem'}}`;
-        } else if (state === RequestState.working) {
-            status = `${msg || 'Working...'}`;
-        }
-
+        const status = this.getLastActionText(state, slackUserId, msg);
         if (status) {
             blocks.push(this.getContextBlock([status]));
         }
@@ -169,8 +244,8 @@ export class RequestThread {
         // Add the description at the end so that only the description is hidden
         //  by Slack when the message is too long.
         if (ticket && ticket.fields.description) {
-            const indentedDescription = replaceAll(ticket.fields.description, { '\n': '\n> ' });
-            blocks.push(this.getSectionBlockFromText('> ' + indentedDescription));
+            const indentedDescription = replaceAll(ticket.fields.description, { "\n": "\n> " });
+            blocks.push(this.getSectionBlockFromText("> " + indentedDescription));
         }
 
         return blocks;
@@ -178,10 +253,10 @@ export class RequestThread {
 
     public static buildActionBarHeader(): SlackBlock[] {
         return [{
-            type: 'section',
+            type: "section",
             text: {
-                type: 'mrkdwn',
-                text: '*Ticket Actions*'
+                type: "mrkdwn",
+                text: "*Ticket Actions*"
             }
         }];
     }
@@ -193,13 +268,13 @@ export class RequestThread {
 
         if (actions.length > 0) {
             blocks.push({
-                type: 'actions',
-                block_id: 'infra_request_actions',
+                type: "actions",
+                block_id: "infra_request_actions",
                 elements: actions.map((a) => {
                     return {
-                        type: 'button',
+                        type: "button",
                         text: {
-                            type: 'plain_text',
+                            type: "plain_text",
                             emoji: true,
                             text: a.name
                         },
@@ -211,9 +286,9 @@ export class RequestThread {
             });
         } else {
             blocks.push({
-                type: 'section',
+                type: "section",
                 text: {
-                    type: 'mrkdwn',
+                    type: "mrkdwn",
                     text: `${this.config.REQUEST_WORKING_SLACK_ICON} Waiting...`
                 }
             });
@@ -224,16 +299,16 @@ export class RequestThread {
     private iconFromState(state: RequestState): string {
 
         const statusToIconMap: Record<RequestState, string> = {
-            [RequestState.working]: this.config.REQUEST_WORKING_SLACK_ICON || ':clock1:',
-            [RequestState.error]: this.config.REQUEST_ERROR_SLACK_ICON || ':x:',
-            [RequestState.complete]: this.config.REQUEST_COMPLETED_SLACK_ICON || ':white_circle:',
-            [RequestState.todo]: this.config.REQUEST_SUBMITTED_SLACK_ICON || ':black_circle:',
-            [RequestState.cancelled]: this.config.REQUEST_CANCELLED_SLACK_ICON || ':red_circle:',
-            [RequestState.claimed]: this.config.REQUEST_CLAIMED_SLACK_ICON || ':large_blue_circle:',
-            [RequestState.unknown]: ':red_circle'
+            [RequestState.working]: this.config.REQUEST_WORKING_SLACK_ICON || ":clock1:",
+            [RequestState.error]: this.config.REQUEST_ERROR_SLACK_ICON || ":x:",
+            [RequestState.complete]: this.config.REQUEST_COMPLETED_SLACK_ICON || ":white_circle:",
+            [RequestState.todo]: this.config.REQUEST_SUBMITTED_SLACK_ICON || ":black_circle:",
+            [RequestState.cancelled]: this.config.REQUEST_CANCELLED_SLACK_ICON || ":red_circle:",
+            [RequestState.claimed]: this.config.REQUEST_CLAIMED_SLACK_ICON || ":large_blue_circle:",
+            [RequestState.unknown]: ":red_circle"
         };
 
-        return state in statusToIconMap ? statusToIconMap[state] : ':question:';
+        return state in statusToIconMap ? statusToIconMap[state] : ":question:";
     }
 
     /**
@@ -271,19 +346,9 @@ export class RequestThread {
             lines.push(`*${ticket.key} - ${ticket.fields.summary}*`);
         }
 
-        // Last Action Taken (based on message and state parameter
-        if (state === RequestState.todo) {
-            lines.push(`Issue submitted by <@${slackUserId}>`);
-        } else if (state === RequestState.claimed) {
-            lines.push(`Issue claimed by <@${slackUserId}>`);
-        } else if (state === RequestState.complete) {
-            lines.push(`Issue completed by <@${slackUserId}>`);
-        } else if (state === RequestState.cancelled) {
-            lines.push(`Issue cancelled by <@${slackUserId}>`);
-        } else if (state === RequestState.error) {
-            lines.push(`${msg ? msg : 'Ummm... there was a problem'}}`);
-        } else if (state === RequestState.working) {
-            lines.push(`${msg || 'Working...'}`);
+        const status = this.getLastActionText(state, slackUserId, msg);
+        if (status) {
+            lines.push(status);
         }
 
         // Add the description at the end so that only the description is hidden
@@ -292,6 +357,24 @@ export class RequestThread {
             lines.push(ticket.fields.description);
         }
 
-        return lines.join('\n');
+        return lines.join("\n");
     };
+
+    private getLastActionText(state: RequestState, slackUserId: string, msg: string) {
+        if (state === RequestState.todo) {
+            return `Reported by: <@${slackUserId}>`;
+        } else if (state === RequestState.claimed) {
+            return `Reported by: <@${this.reporterSlackId}>\nClaimed by: <@${slackUserId}>`;
+        } else if (state === RequestState.complete) {
+            return `Reported by: <@${this.reporterSlackId}>\nCompleted by <@${slackUserId}>`;
+        } else if (state === RequestState.cancelled) {
+            return `Reported by: <@${this.reporterSlackId}>\nCancelled by <@${slackUserId}>`;
+        } else if (state === RequestState.error) {
+            return `${msg ? msg : "Ummm... there was a problem"}}`;
+        } else if (state === RequestState.working) {
+            return `${msg || "Working..."}`;
+        }
+
+        return undefined;
+    }
 }

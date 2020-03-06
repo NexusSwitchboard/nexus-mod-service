@@ -26,7 +26,7 @@ In addition to the creation and status updates, the slack thread that is associa
 The ServiceRequest class is where the bulk of the functionality lives. The `interactions.ts` file is where the interactions are received.  
 
 ### Associating Slack with Jira and vice versa
-The most important thing to remember is that we use the channel and timestamp of the thread to associate slack actions with the created ticket.  To do that, we submit the channel/ts combo as a label in Jira and use that to reference back to the original slack message and action areas.
+The most important thing to remember is that we use the channel and timestamp of the thread to associate slack actions with the created ticket.  To do that, we submit the channel/ts combo as a label in Jira and use that to reference back to the original slack message and action areas.  That label is what allows us to initially find the ticket but we store additional information as hidden properties of the Jira issue using the Issue Properties APIs.  Information included in the properties live under the key `infrabot` and include the channel, thread ts, action message ts and the originating slack user ID.
 
 ### Associating Slack Users with Jira Users
 In order for the create, claim, cancel and complete actions to set the reporter and assignee properly based on the slack user who is performing the action, we assume that the email associated with the slack user is the same as the email associated with the jira user.  *If that is not the case, then user operations will not work.*
