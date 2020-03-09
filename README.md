@@ -42,40 +42,8 @@ The workflow associated with the project you are connecting to this module must 
 6. Your project must have at least one component.  If not, the user will not see the create modal when initiating a request.  
 7. The issue type ID must be set to ensure that the correct type of issue is being created.  You can find the ID of issue types by going to the issue types settings and hovering over the type you want to use - the link _should_ indicate the type id.
 
-# Slack App Configuration
-You will need the following configuration options set in the Slack App you create and point to your instance of the module:
-
-1. Intractive Components
-   1. Enable
-   2. Add Action: Callback ID is submit_infra_request
-   3. Action Name: Whatever you want
-   4. Request URL: https://<your_dmoain>/m/service/slack/interactions
-   
-2. Slash Commands
-   1. Create a new slash command - you can call it whatever you want though the name will be used in the URL (below) 
-   3. Set the request URL to https://<your_domain>/m/service/slack/commands/<command_name>
-   
-2. OAuth & Permissions
-   1. Scopes - See below for the scopes that you will need to add and request permission from users to apply
-   2. Bot User - Add a bot and name it whatever you want
-   3. Always Show My Bot Online - Set to "On" (but not required)
-
-## Slack App Permissions
-The Slack App requires the following OAuth roles to function properly:
-
-* *bot* - Required for having a bot presence that can behave as a user and be mentioned and DM'd
-* *channels:history* - Required to pull message information from a channel
-* *groups:history* - Required to pull message information from a user's private chanel
-* *im:history* - Required to pull message information from the user's DMs
-* *mpim:history* - Required to pull message information from the users' multi-person DMs
-* *users:read* - Required to pull profile information needed to connect Jira with Slack
-* *users:read.email* - Required to pull user's email needed to connect Jira with Slack
-* *users:profile:read* - Required to pull users' display_name field (the @<name>)
-* *chat:write:bot* - Required to create new message as the app bot user
-* *chat:write:user* - Required to create new messages in the name of the initiating user.
+Here are the module configuration values that can and, in most cases, must be set:
  
-# Module Configuration
-
 * `REQUEST_COMMAND_NAME: "<command_name>"`
     * This is the name of the slash command for initiating a request
 
@@ -110,7 +78,52 @@ The Slack App requires the following OAuth roles to function properly:
     *  This is the prefix/key that is used in the following areas:
         1. The label that is attached to a created issue plus the text "-request" as in "infrabot-request"
         2. The property name used when creating the custom property associated with each issue to store information such as slack thread data.  In this case, it is used as is: "infrabot", for example.
-    
+
+Here are the Jira connection options that are required:
+
+* `SERVICE_JIRA_HOST: ""`
+    * `subdomain`.atlassian.net
+* `SERVICE_JIRA_USERNAME: ""`
+    * The username is always an email address.  Note that the user you choose must have the necessary permissions to perform the operations necesary (see above)
+* `SERVICE_JIRA_API_KEY: ""`
+    * The API key for the given user.  This *MUST NOT BE THE PASSWORD* of that user.  Your API key can be generated here: https://id.atlassian.com/manage/api-tokens
+ 
+
+# Slack App Configuration
+You will need the following configuration options set in the Slack App you create and point to your instance of the module:
+
+1. Intractive Components
+   1. Enable
+   2. Add Action: Callback ID is submit_infra_request
+   3. Action Name: Whatever you want
+   4. Request URL: https://<your_dmoain>/m/service/slack/interactions
+   
+2. Slash Commands
+   1. Create a new slash command - you can call it whatever you want though the name will be used in the URL (below) 
+   3. Set the request URL to https://<your_domain>/m/service/slack/commands/<command_name>
+   
+2. OAuth & Permissions
+   1. Scopes - See below for the scopes that you will need to add and request permission from users to apply
+   2. Bot User - Add a bot and name it whatever you want
+   3. Always Show My Bot Online - Set to "On" (but not required)
+
+These are the slack configuration settings that are specified in the module config and are required to connect and interact properly with Slack:
+
+* `SERVICE_SLACK_APP_ID: ""` 
+    - The app ID specified in your app's admin page: https://api.slack.com/apps/`appid`  
+* `SERVICE_SLACK_CLIENT_ID: ""` 
+    - The client ID specified in your app's admin page: https://api.slack.com/apps/`appid`
+* `SERVICE_SLACK_CLIENT_SECRET: ""` 
+    - The client secret specified in your app's admin page: https://api.slack.com/apps/`appid`
+* `SERVICE_SLACK_SIGNING_SECRET: ""`  
+    - The signing secret specified in your app's admin page: https://api.slack.com/apps/`appid` 
+* `SERVICE_SLACK_CLIENT_OAUTH_TOKEN: ""`  
+    - The "OAuth Access Token" in your app's admin page: https://api.slack.com/apps/`appid`/oauth
+* `SERVICE_SLACK_USER_OAUTH_TOKEN: ""` 
+    - The "Bot User OAuth Access Token" in your app's admin page: https://api.slack.com/apps/`appid`/oauth
+
+Here are the module configuration options that can be set for the Slack integration that can be set:
+
 * `REQUEST_COMPLETED_SLACK_ICON: ""`
     * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)
 * `REQUEST_CANCELLED_SLACK_ICON: ""`
@@ -134,16 +147,20 @@ The Slack App requires the following OAuth roles to function properly:
 * `SLACK_BOT_USERNAME: ""`
     * The name of the bot user given in your Slack app.  If this does not match (case insensitive) then the module will not be able to correctly identify its own messages which will cause some problems during ticket status updates in Slack.
     
-The following are connection-specific configuration options:
+## Slack App Permissions
+The Slack App requires the following OAuth roles to function properly:
 
-* *SERVICE*_SLACK_APP_ID: [`string`]
-* *SERVICE*_SLACK_CLIENT_ID: [`string`]
-* *SERVICE*_SLACK_CLIENT_SECRET: [`string`]
-* *SERVICE*_SLACK_SIGNING_SECRET: [`string`]
-* *SERVICE*_SLACK_CLIENT_OAUTH_TOKEN: xoxp-[`string`]
-* *SERVICE*_SLACK_USER_OAUTH_TOKEN: xoxb-[`string`]*
-* *SERVICE*_JIRA_HOST: [`subdomain`].atlassian.net
-* *SERVICE*_JIRA_USERNAME: [`email`]
-* *SERVICE*_JIRA_API_KEY: [`user_api_key`]
+* *bot* - Required for having a bot presence that can behave as a user and be mentioned and DM'd
+* *channels:history* - Required to pull message information from a channel
+* *groups:history* - Required to pull message information from a user's private chanel
+* *im:history* - Required to pull message information from the user's DMs
+* *mpim:history* - Required to pull message information from the users' multi-person DMs
+* *users:read* - Required to pull profile information needed to connect Jira with Slack
+* *users:read.email* - Required to pull user's email needed to connect Jira with Slack
+* *users:profile:read* - Required to pull users' display_name field (the @<name>)
+* *chat:write:bot* - Required to create new message as the app bot user
+* *chat:write:user* - Required to create new messages in the name of the initiating user.
+ 
+# Configuration Options
 
 Note that the SERVICE_ prefix is only necessary when stored as environment variables.  See documentation on cnofiguration secrets in the main `README.md`
