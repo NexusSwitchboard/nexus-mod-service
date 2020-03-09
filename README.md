@@ -79,7 +79,7 @@ Here are the module configuration values that can and, in most cases, must be se
         1. The label that is attached to a created issue plus the text "-request" as in "infrabot-request"
         2. The property name used when creating the custom property associated with each issue to store information such as slack thread data.  In this case, it is used as is: "infrabot", for example.
 
-Here are the Jira connection options that are required:
+Here are the Jira _secret_ options that are required:
 
 * `SERVICE_JIRA_HOST: ""`
     * `subdomain`.atlassian.net
@@ -87,7 +87,8 @@ Here are the Jira connection options that are required:
     * The username is always an email address.  Note that the user you choose must have the necessary permissions to perform the operations necesary (see above)
 * `SERVICE_JIRA_API_KEY: ""`
     * The API key for the given user.  This *MUST NOT BE THE PASSWORD* of that user.  Your API key can be generated here: https://id.atlassian.com/manage/api-tokens
- 
+* `SERVICE_JIRA_ADDON_CACHE: ""`
+    * This is the connection string used to store information about addon clients.  This is necessary if you want to client data in a way that is not using the disk.  Depending on how you deploy this, you may lose that data with each restart without specifying a separate datstore here.  The options are sqlite or redis and connection string documentation is available here:  https://github.com/lukechilds/keyv
 
 # Slack App Configuration
 You will need the following configuration options set in the Slack App you create and point to your instance of the module:

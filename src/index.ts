@@ -54,7 +54,8 @@ export class ServiceModule extends NexusModule {
             // Jira Credentials
             JIRA_HOST: "__env__",
             JIRA_USERNAME: "__env__",
-            JIRA_API_KEY: "__env__"
+            JIRA_API_KEY: "__env__",
+            JIRA_ADDON_CACHE: "__env__"
         };
 
         return overrides ? Object.assign({}, defaults, overrides) : {...defaults};
@@ -81,7 +82,9 @@ export class ServiceModule extends NexusModule {
 
                     baseUrl: `${this.globalConfig.baseUrl}${this.moduleRootPath}`,
 
-                    webhooks: loadWebhooks(config)
+                    webhooks: loadWebhooks(config),
+
+                    connectionString: config.JIRA_ADDON_CACHE
                 }
             },
             {
