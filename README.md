@@ -22,16 +22,27 @@ When the modal is submitted, a Jira Ticket is created and associated with the ch
 
 In addition to the creation and status updates, the slack thread that is associated with the ticket will monitor any posts and submit those as comments on the Jira ticket with a reference back to the originating slack conversation.
 
-## Implementation
+# Implementation
 The ServiceRequest class is where the bulk of the functionality lives. The `interactions.ts` file is where the interactions are received.  
 
-### Associating Slack with Jira and vice versa
+## Associating Slack with Jira and vice versa
 The most important thing to remember is that we use the channel and timestamp of the thread to associate slack actions with the created ticket.  To do that, we submit the channel/ts combo as a label in Jira and use that to reference back to the original slack message and action areas.  That label is what allows us to initially find the ticket but we store additional information as hidden properties of the Jira issue using the Issue Properties APIs.  Information included in the properties live under the key `infrabot` and include the channel, thread ts, action message ts and the originating slack user ID.
 
-### Associating Slack Users with Jira Users
+## Associating Slack Users with Jira Users
 In order for the create, claim, cancel and complete actions to set the reporter and assignee properly based on the slack user who is performing the action, we assume that the email associated with the slack user is the same as the email associated with the jira user.  *If that is not the case, then user operations will not work.*
 
-## Slack App Configuration
+# Jira Configuration
+The workflow associated with the project you are connecting to this module must be configured in a way that will allow for proper integration:
+
+1. Ensure that your transitions are correctly set in the nexus configuration.  You case see the IDs of your transitions in a workflow by visiting the text version of your workflow editor.
+2. Ensure that your statuses are configured correctly.  Nexus will attempt to translate the status strings into IDs for you (when necessary).  You can check your statuses most easily in the text or diagram view of your workflow.
+3. Nexus attempts to set the resolution during the transition from any status to a "done" status.  This will fail if the configured transition does not have a screen associated with it that includes the transition field.  The resolution being set is important because as of now the same status is used for "Completed" and "Cancelled" and depends on the "resolution" field to differentiate between the two.
+4. If you see a log error during creation of a ticket saying something about a reporter not being able to be set, this is likely the result of the API user/key you are using does not have _Modify Reporter_ permission in the project.  To overcome this and other issues, set your API user to be an administrator in the project that is associated.
+5. Old style projects did not have the notion of epic relationships built in as parent/child relationships unfortunately. Instead, they are indicated under the hood using the "Epic Link" field which is actually a custom field.  Since it's a custom field, it does not appear consistently in the fields list of issue object.  Different accounts could have different names for this field.  For example, one might be `customfield_10008` while another could be `customfield_12220`.  That is why you must set this field correctly in your configuration.  If you are using a "next-gen" project then this field can be left empty and only the epic key config will be used.
+6. Your project must have at least one component.  If not, the user will not see the create modal when initiating a request.  
+7. The issue type ID must be set to ensure that the correct type of issue is being created.  You can find the ID of issue types by going to the issue types settings and hovering over the type you want to use - the link _should_ indicate the type id.
+
+# Slack App Configuration
 You will need the following configuration options set in the Slack App you create and point to your instance of the module:
 
 1. Intractive Components
@@ -63,7 +74,7 @@ The Slack App requires the following OAuth roles to function properly:
 * *chat:write:bot* - Required to create new message as the app bot user
 * *chat:write:user* - Required to create new messages in the name of the initiating user.
  
-## Module Configuration
+# Module Configuration
 
 * `REQUEST_COMMAND_NAME: "<command_name>"`
     * This is the name of the slash command for initiating a request
@@ -94,6 +105,11 @@ The Slack App requires the following OAuth roles to function properly:
 
 * `REQUEST_JIRA_DEFAULT_COMPONENT_ID: ""`
     * The ID of the comonent to use if no component is given during issue creation
+    
+* `REQUEST_JIRA_SERVICE_LABEL: "infrabot"`
+    *  This is the prefix/key that is used in the following areas:
+        1. The label that is attached to a created issue plus the text "-request" as in "infrabot-request"
+        2. The property name used when creating the custom property associated with each issue to store information such as slack thread data.  In this case, it is used as is: "infrabot", for example.
     
 * `REQUEST_COMPLETED_SLACK_ICON: ""`
     * The icon to use for this state (note that it should have the :<name>: format and should be available in the workspace into which the app is deployed)

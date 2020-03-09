@@ -2,10 +2,11 @@ import { SlackMessageId } from "./slackMessageId";
 import { logger } from "..";
 import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 import { RequestState } from "./request";
-import { JiraTicket, JiraConnection } from "@nexus-switchboard/nexus-conn-jira";
-import { SlackBlock, SlackConnection } from "@nexus-switchboard/nexus-conn-slack";
+import { JiraTicket, JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
+import { SlackBlock, SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
 import { replaceAll } from "./util";
-import assert from "assert";
+import moduleInstance from "../index";
+import { ChatPostMessageArguments, ChatUpdateArguments } from "@slack/web-api";
 
 export const claimButton: IssueAction = {
     code: "claim_request",
@@ -46,7 +47,9 @@ export type JiraIssueSidecarData = {
     channelId: string,
     threadId: string,
     actionMsgId: string,
-    reporterSlackId: string
+    reporterSlackId: string,
+    claimerSlackId: string,
+    closerSlackId: string
 };
 
 export class RequestThread {
@@ -55,6 +58,8 @@ export class RequestThread {
     public actionMessageId: SlackMessageId;
 
     protected _reporterSlackId: string;
+    protected _claimerSlackId: string;
+    protected _closerSlackId: string;
     protected _ticket: JiraTicket;
     protected slack: SlackConnection;
     protected jira: JiraConnection;
@@ -71,8 +76,31 @@ export class RequestThread {
         return this._ticket;
     }
 
-    public set ticket(val: JiraTicket) {
-        this._ticket = val;
+    public async setTicket(val: JiraTicket) {
+        const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
+        const botProps:JiraIssueSidecarData = getNestedVal(val, `properties.${label}`);
+        if (!botProps) {
+            throw new Error("A ticket cannot be set which does not have any properties set");
+        }
+
+        if (botProps.channelId !== this.channel) {
+            throw new Error("A ticket in Jira had bot properties associated with it but they have the wrong channel ID.  Which really shouldn't happen");
+        }
+
+        if (botProps.threadId !== this.ts) {
+            throw new Error("A ticket in Jira had bot properties associated with it but they have the wrong channel ID.  Which really shouldn't happen");
+        }
+
+        this._ticket = await this.loadFullTicketDetails(val);
+
+        // The sidecard data in Jira keeps track of the original reporter and the action message TS.
+        //  We need the former because we can't convert jira users to slack users (privacy reason) and we need the
+        //  latter because it's slow to pull a full list of replies from the thread just to get the first one.  At
+        //  the time of writing this, it was not possible to return just the first reply (grrr..).
+        this.actionMessageId = new SlackMessageId(this.channel, botProps.actionMsgId);
+        this.reporterSlackId = botProps.reporterSlackId;
+        this.claimerSlackId = botProps.claimerSlackId;
+        this.closerSlackId = botProps.closerSlackId;
     }
 
     public get reporterSlackId(): string {
@@ -81,6 +109,22 @@ export class RequestThread {
 
     public set reporterSlackId(val: string) {
         this._reporterSlackId = val;
+    }
+
+    public get claimerSlackId(): string {
+        return this._claimerSlackId;
+    }
+
+    public set claimerSlackId(val: string) {
+        this._claimerSlackId = val;
+    }
+
+    public get closerSlackId(): string {
+        return this._closerSlackId;
+    }
+
+    public set closerSlackId(val: string) {
+        this._closerSlackId = val;
     }
 
     public get channel(): string {
@@ -96,73 +140,12 @@ export class RequestThread {
         return this.slackMessageId.buildRequestId();
     }
 
-    public async setActionThread(ts: string) {
+    public setActionThread(ts: string) {
         if (!this.actionMessageId) {
             this.actionMessageId = new SlackMessageId(this.slackMessageId.channel, ts);
         } else {
             this.actionMessageId.ts = ts;
         }
-
-        await this.saveJiraIssueProperties();
-    }
-
-    /**
-     * This will save the infrabot properties on the  associated jira ticket (in  Jira).  This includes
-     * the action message ID and the originating slack user.
-     */
-    protected async saveJiraIssueProperties() {
-        if (!this.ticket) {
-            return;
-        }
-
-        try {
-            await this.jira.api.issueProperties.setIssueProperty({
-                issueIdOrKey: this.ticket.key,
-                propertyKey: "infrabot",
-                channelId: this.slackMessageId.channel,
-                threadId: this.slackMessageId.ts,
-                actionMsgId: this.actionMessageId.ts,
-                reporterSlackId: this.reporterSlackId
-            });
-        } catch (e) {
-            logger("Exception thrown: Unable to set issue property data on an issue: " + e.toString());
-        }
-    }
-
-    /**
-     * This will load the infrabot properties associated  with the jira ticket (in  Jira).  This includes
-     * the action message ID and the originating slack user.
-     */
-    public async loadJiraIssueProperties(): Promise<any> {
-        if (!this.ticket) {
-            return undefined;
-        }
-
-        try {
-            let props: JiraIssueSidecarData = getNestedVal(this.ticket, "properties.infrabot");
-            if (!props) {
-                const result = await this.jira.api.issueProperties.getIssueProperty({
-                    issueIdOrKey: this.ticket.key,
-                    propertyKey: "infrabot"
-                });
-
-                if (result) {
-                    props = result.value;
-                }
-            }
-
-            if (props) {
-                assert(props.channelId === this.channel);
-                this.actionMessageId = new SlackMessageId(this.channel, props.actionMsgId);
-                this.reporterSlackId = props.reporterSlackId;
-            } else {
-                logger("There was no valid infrabot property found on issue " + this.ticket.key);
-            }
-        } catch (e) {
-            logger("Exception thrown: Unable to get issue property data on an issue: " + e.toString());
-        }
-
-        return undefined;
     }
 
     public async getThreadHeaderMessageId(): Promise<SlackMessageId> {
@@ -172,15 +155,112 @@ export class RequestThread {
                 return undefined;
             }
 
-            if (!this.actionMessageId) {
-                await this.loadJiraIssueProperties();
-            }
-
             return this.actionMessageId;
         } catch (e) {
             logger("Exception thrown: When trying to get the action bar message ID: " + e.toString());
             return undefined;
         }
+    }
+
+
+    public async update(msg?: string, slackUser?: SlackPayload, jiraUser?: JiraPayload) {
+        await this.updateTopLevelMessage(msg,slackUser,jiraUser);
+        await this.updateActionBar();
+    }
+
+    /**
+     * This will add the buttons at the top of the thread in the form of a
+     * reply in the   If there are no messages in the thread then it will add one.
+     * If there is somehow already a message in the thread then it will either overwrite or, if it doesn't
+     * have sufficient permissions will fail.
+     */
+    public async updateActionBar() {
+        const header = await this.getThreadHeaderMessageId();
+
+        try {
+            const blocks = this.buildActionBlocks();
+            const ts = await this.addReply({
+                text: "Action Bar",
+                blocks
+            }, header ? header.ts : undefined);
+
+            if (ts) {
+                this.setActionThread(ts);
+            }
+        } catch (e) {
+            logger("Exception thrown: Unable to update the action bar: " + e.toString());
+        }
+    }
+
+
+    /**
+     * Posts a message to the right slack thread with a standard error format
+     * @param msg
+     * @param messageToUpdateTs If given, it will try and replace the given message
+     */
+    public async addErrorReply(msg: string, messageToUpdateTs?: string) {
+        await this.addReply({ text: `:x: ${msg}` }, messageToUpdateTs);
+    }
+
+    /**
+     * This will add or replace a post to the right channel.  The slack payload given is the same as the payload
+     * you would use when posting a message but it will handle replace an exisiting message if a `ts` is given.  It
+     * then will return the created or updated ts if successful
+     * @param messageParams
+     * @param ts
+     */
+    public async addReply(messageParams: SlackPayload, ts?: string): Promise<string> {
+        if (ts) {
+            const options: ChatUpdateArguments = Object.assign(
+                {}, {
+                    text: "",
+                    channel: this.channel,
+                    ts
+                }, messageParams);
+
+
+            try {
+                const result = await this.slack.apiAsBot.chat.update(options);
+                if (result.ok) {
+                    return result.ts as string;
+                }
+            } catch (e) {
+                logger("Exception thrown: Failed to update the top reply in the thread: " + e.toString());
+            }
+
+        } else {
+            const options: ChatPostMessageArguments = Object.assign({}, {
+                text: "",
+                channel: this.channel,
+                thread_ts: this.ts
+            }, messageParams);
+
+            try {
+                const result = await this.slack.apiAsBot.chat.postMessage(options);
+                if (result.ok) {
+                    return result.ts as string;
+                }
+            } catch (e) {
+                logger("Exception thrown: Unable to create a reply in the thread: " + e.toString());
+            }
+        }
+
+        return undefined;
+    }
+
+    public async updateTopLevelMessage(msg?: string, slackUser?: SlackPayload, jiraUser?: JiraPayload) {
+
+        const blocks = this.buildTextBlocks(msg, slackUser, jiraUser);
+        const plainText = this.buildPlainTextString(msg, slackUser, jiraUser);
+
+        // the source request was an APP post which means we can update it without extra permissions.
+        await this.slack.apiAsBot.chat.update({
+            channel: this.channel,
+            ts: this.ts,
+            as_user: true,
+            text: plainText,
+            blocks
+        });
     }
 
     protected getSectionBlockFromText(text: string): SlackBlock {
@@ -191,10 +271,6 @@ export class RequestThread {
                 text
             }
         };
-    }
-
-    protected getDividerBlock(): SlackBlock {
-        return { type: "divider" };
     }
 
     protected getContextBlock(text: string[]): SlackBlock {
@@ -214,41 +290,54 @@ export class RequestThread {
     /**
      * Creates the text blocks that should be used to as the thread's top level message.  If you want
      * a purely text-based version of this, then use the buildPlainTextString
-     * @param ticket
-     * @param state
-     * @param ticketLink
-     * @param msg
-     * @param slackUserId
+     * @param customMsg
+     * @param slackUser
+     * @param jiraUser
      */
-    public buildTextBlocks(ticket: JiraTicket, state: RequestState, ticketLink?: string, msg?: string, slackUserId?: string): SlackBlock[] {
-
-        const icon = this.iconFromState(state);
+    public buildTextBlocks(customMsg: string, slackUser?: SlackPayload, jiraUser?: JiraPayload): SlackBlock[] {
 
         const blocks: SlackBlock[] = [];
 
+        const state: RequestState = this.getIssueState();
+        const icon = this.iconFromState(state);
+
         // Ticket Information (if a ticket is given)
-        if (ticket) {
-            if (ticketLink) {
-                blocks.push(this.getSectionBlockFromText(`${icon} *<${ticketLink}|${ticket.key} - ${ticket.fields.summary}>*`));
-            } else {
-                blocks.push(this.getSectionBlockFromText(`${icon} *${ticket.key} - ${ticket.fields.summary}*`));
-            }
+        let description = "";
+        if (this.ticket) {
+
+            const ticketLink: string = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+            blocks.push(this.getSectionBlockFromText(`${icon} *<${ticketLink}|${this.ticket.key} - ${this.ticket.fields.summary}>*`));
+
+            description = this.ticket.fields.description || undefined;
         }
 
-        // Last Action Taken (based on message and state parameter
-        const status = this.getLastActionText(state, slackUserId, msg);
+        const userStr = RequestThread.getBestUserString(slackUser, jiraUser);
+        const status = this.getLastActionText(state, userStr, customMsg);
         if (status) {
             blocks.push(this.getContextBlock([status]));
         }
 
         // Add the description at the end so that only the description is hidden
         //  by Slack when the message is too long.
-        if (ticket && ticket.fields.description) {
-            const indentedDescription = replaceAll(ticket.fields.description, { "\n": "\n> " });
+        if (description) {
+            const indentedDescription = replaceAll(description, { "\n": "\n> " });
             blocks.push(this.getSectionBlockFromText("> " + indentedDescription));
         }
 
         return blocks;
+    }
+
+    private static getBestUserString(slackUser: SlackPayload, jiraUser: JiraPayload) {
+        // Prefer to use the Slack user for rendering in slack.
+        let userStr: string = "";
+        if (slackUser) {
+            userStr = `<@${slackUser.id}>`;
+        } else if (jiraUser) {
+            userStr = jiraUser.displayName;
+        } else {
+            userStr = "Unknown User"
+        }
+        return userStr;
     }
 
     public static buildActionBarHeader(): SlackBlock[] {
@@ -261,8 +350,40 @@ export class RequestThread {
         }];
     }
 
-    public buildActionBlocks(state: RequestState, ticket?: JiraTicket, jiraLink?: string) {
-        const actions = RequestThread.getMessageActions(state, ticket, jiraLink);
+
+    /**
+     * Maps an issue's status to a request state.
+     */
+    public getIssueState(): RequestState {
+
+        if (!this.ticket) {
+            return RequestState.working;
+        }
+
+        const cat: string = getNestedVal(this.ticket, 'fields.status.statusCategory.name');
+
+        if (["undefined","to do","new"].indexOf(cat.toLowerCase()) >= 0) {
+            return RequestState.todo;
+        } else if (["indeterminate","in progress"].indexOf(cat.toLowerCase()) >= 0) {
+            return RequestState.claimed;
+        } else if (["complete","done"].indexOf(cat.toLowerCase()) >= 0) {
+            const resolution: string = getNestedVal(this.ticket, 'fields.resolution.name');
+            if (resolution) {
+                if (resolution.toLowerCase() === this.config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
+                    return RequestState.complete;
+                } else {
+                    return RequestState.cancelled;
+                }
+            }
+            return RequestState.complete;
+        } else {
+            return RequestState.unknown;
+        }
+    };
+
+    public buildActionBlocks() {
+        const state = this.getIssueState();
+        const actions = this.getMessageActions(state);
 
         const blocks: SlackBlock[] = RequestThread.buildActionBarHeader();
 
@@ -314,61 +435,84 @@ export class RequestThread {
     /**
      * Used to render the right action buttons in a message based on issue properties.
      */
-    private static getMessageActions(state: RequestState, _ticket?: JiraTicket, jiraLink?: string): IssueAction[] {
-        const newViewButton = Object.assign({}, viewButton);
-        newViewButton.url = jiraLink;
+    private getMessageActions(state: RequestState): IssueAction[] {
 
-        if (state === RequestState.complete || state === RequestState.cancelled) {
-            return [newViewButton];
-        } else if (state === RequestState.todo) {
-            return [claimButton, cancelButton, newViewButton];
-        } else if (state === RequestState.claimed) {
-            return [completeButton, cancelButton, newViewButton];
-        } else if (state === RequestState.working) {
-            return [];
-        } else if (state === RequestState.error) {
-            return [];
-        } else {
-            // if we don't know the state then we should show all the buttons.
-            return [claimButton, completeButton, cancelButton, newViewButton];
+        if (this.ticket) {
+            const newViewButton = Object.assign({}, viewButton);
+            newViewButton.url = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+
+            if (state === RequestState.complete || state === RequestState.cancelled) {
+                return [newViewButton];
+            } else if (state === RequestState.todo) {
+                return [claimButton, cancelButton, newViewButton];
+            } else if (state === RequestState.claimed) {
+                return [completeButton, cancelButton, newViewButton];
+            }
+
+            // ALL OTHER STATES WILL SHOW NO ACTIONS.
         }
-    };
 
-    public buildPlainTextString(ticket: JiraTicket,
-                                state: RequestState,
-                                msg?: string,
-                                slackUserId?: string): string {
+        return [];
+    }
+
+    public buildPlainTextString(customMsg: string, slackUser?: SlackPayload, jiraUser?: JiraPayload): string {
 
         const lines: string[] = [];
 
         // Ticket Information (if a ticket is given)
-        if (ticket) {
-            lines.push(`*${ticket.key} - ${ticket.fields.summary}*`);
+        let description: string;
+        if (this.ticket) {
+            lines.push(`*${this.ticket.key} - ${this.ticket.fields.summary}*`);
+            description = this.ticket.fields.description || undefined;
         }
 
-        const status = this.getLastActionText(state, slackUserId, msg);
+        const state = this.getIssueState();
+        const userStr = RequestThread.getBestUserString(slackUser, jiraUser);
+        const status = this.getLastActionText(state, userStr, customMsg);
         if (status) {
             lines.push(status);
         }
 
         // Add the description at the end so that only the description is hidden
         //  by Slack when the message is too long.
-        if (ticket && ticket.fields.description) {
-            lines.push(ticket.fields.description);
+        if (description) {
+            lines.push(description);
         }
 
         return lines.join("\n");
     };
 
-    private getLastActionText(state: RequestState, slackUserId: string, msg: string) {
+    /**
+     * This will ensure that either the given ticket has all the necessary
+     * properties and values to allow this class to function as intended or
+     * it will attempt to get more information.  Either way, it will return
+     * the ticket with the new info.
+     * @param ticket
+     */
+    protected async loadFullTicketDetails(ticket: JiraTicket): Promise<JiraTicket> {
+        const label = moduleInstance.getActiveModuleConfig().REQUEST_JIRA_SERVICE_LABEL;
+        const botProps = getNestedVal(ticket, `properties.${label}`);
+        if (!botProps) {
+            return await this.jira.api.issues.getIssue({
+                issueIdOrKey: ticket.key,
+                fields: ["*all"],
+                properties: [label]
+            });
+        } else {
+            return ticket;
+        }
+    }
+
+
+    private getLastActionText(state: RequestState, userName: string, msg: string) {
         if (state === RequestState.todo) {
-            return `Reported by: <@${slackUserId}>`;
+            return `Reported by: ${userName}`;
         } else if (state === RequestState.claimed) {
-            return `Reported by: <@${this.reporterSlackId}>\nClaimed by: <@${slackUserId}>`;
+            return `Reported by: <@${this.reporterSlackId}>\nClaimed by: ${userName}`;
         } else if (state === RequestState.complete) {
-            return `Reported by: <@${this.reporterSlackId}>\nCompleted by <@${slackUserId}>`;
+            return `Reported by: <@${this.reporterSlackId}>\nCompleted by ${userName}`;
         } else if (state === RequestState.cancelled) {
-            return `Reported by: <@${this.reporterSlackId}>\nCancelled by <@${slackUserId}>`;
+            return `Reported by: <@${this.reporterSlackId}>\nCancelled by ${userName}`;
         } else if (state === RequestState.error) {
             return `${msg ? msg : "Ummm... there was a problem"}}`;
         } else if (state === RequestState.working) {

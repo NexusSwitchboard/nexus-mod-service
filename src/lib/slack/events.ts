@@ -27,7 +27,7 @@ const handlePostedThreadMessage = async (_conn: SlackConnection,
 
             // note that we don't block on requests in the main flow because slack is expecting a response of some
             //  kind within a very short period.
-            ServiceRequest.loadExistingThread(slackUserId, channel, threadTs)
+            ServiceRequest.loadThreadFromSlackEvent(slackUserId, channel, threadTs)
                 .then(async (request: ServiceRequest) => {
                     return await request.addCommentFromMessageEvent(slackParams);
                 })

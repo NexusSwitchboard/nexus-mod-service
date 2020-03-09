@@ -1,6 +1,6 @@
 import createDebug from "debug";
 import { Application } from 'express';
-import {JiraConnection, IWebhookPayload} from "@nexus-switchboard/nexus-conn-jira";
+import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
 import {
     ConnectionRequest,
@@ -10,15 +10,18 @@ import {
 import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
+import loadWebhooks from "./lib/jira/webhooks";
 
 export const logger = createDebug("nexus:service");
 
-class ServiceModule extends NexusModule {
+export class ServiceModule extends NexusModule {
     public name = "service";
 
     public loadConfig(overrides?: ModuleConfig): ModuleConfig {
         const defaults = {
             REQUEST_COMMAND_NAME: "",
+
+            // Jira Project and Workflow Details
             REQUEST_JIRA_PROJECT: "",
             REQUEST_JIRA_ISSUE_TYPE_ID: "",
             REQUEST_JIRA_EPIC: "",
@@ -28,6 +31,9 @@ class ServiceModule extends NexusModule {
             REQUEST_JIRA_RESOLUTION_DISMISS: "",
             REQUEST_JIRA_RESOLUTION_DONE: "",
             REQUEST_JIRA_DEFAULT_COMPONENT_ID: "",
+            REQUEST_JIRA_SERVICE_LABEL: "",
+
+            // Slack Emoji
             REQUEST_COMPLETED_SLACK_ICON: "",
             REQUEST_CANCELLED_SLACK_ICON: "",
             REQUEST_CLAIMED_SLACK_ICON: "",
@@ -35,6 +41,8 @@ class ServiceModule extends NexusModule {
             REQUEST_WORKING_SLACK_ICON: "",
             REQUEST_EDITING_SLACK_ICON: "",
             REQUEST_ERROR_SLACK_ICON: "",
+
+            // Slack App Details
             SLACK_BOT_USERNAME: "",
             SLACK_APP_ID: "__env__",
             SLACK_CLIENT_ID: "__env__",
@@ -42,6 +50,8 @@ class ServiceModule extends NexusModule {
             SLACK_SIGNING_SECRET: "__env__",
             SLACK_CLIENT_OAUTH_TOKEN: "__env__",
             SLACK_USER_OAUTH_TOKEN: "__env__",
+
+            // Jira Credentials
             JIRA_HOST: "__env__",
             JIRA_USERNAME: "__env__",
             JIRA_API_KEY: "__env__"
@@ -66,21 +76,12 @@ class ServiceModule extends NexusModule {
 
                     addon: {
                         key: "service-addon",
-                        name: "Infrabot Jira Addon"
+                        name: "Service Jira Addon"
                     },
 
                     baseUrl: `${this.globalConfig.baseUrl}${this.moduleRootPath}`,
 
-                    webhooks: [
-                        {
-                            definition: {
-                                event: "jira:issue_created"
-                            },
-                            handler: async (_payload: IWebhookPayload) => {
-                                logger("here");
-                            }
-                        }
-                    ]
+                    webhooks: loadWebhooks(config)
                 }
             },
             {

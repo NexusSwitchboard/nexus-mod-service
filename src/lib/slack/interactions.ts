@@ -36,12 +36,9 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// CLAIM
         if (slackParams.actions[0].value === 'claim_request') {
-            ServiceRequest.loadExistingThread(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
+            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
                 .then((request) => {
                     return request.claim();
-                })
-                .then((_success) => {
-                    logger(`Successfully claimed request for message ${slackParams.message.thread_ts}`);
                 })
                 .catch((err) => {
                     logger(`Failed to claim request for message ${slackParams.message.thread_ts}` +
@@ -53,7 +50,7 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// CANCEL
         if (slackParams.actions[0].value === 'cancel_request') {
-            ServiceRequest.loadExistingThread(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
+            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
                 .then((request) => {
                     return request.cancel();
                 })
@@ -70,12 +67,9 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// COMPLETE
         if (slackParams.actions[0].value === 'complete_request') {
-            ServiceRequest.loadExistingThread(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
+            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
                 .then((request) => {
                     return request.complete();
-                })
-                .then((_success: boolean) => {
-                    logger(`Successfully completed request for message ${slackParams.message.thread_ts}`);
                 })
                 .catch((err: Error) => {
                     logger(`Failed to complete request for message ${slackParams.message.thread_ts}. ` +
@@ -98,14 +92,10 @@ export const interactions: ISlackInteractionHandler[] = [{
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         const slackUserId = findNestedProperty(slackParams, 'user', 'id');
-        let ts = findProperty(slackParams, 'thread_ts');
-        if (!ts) {
-            ts = findProperty(slackParams, 'ts');
-        }
         const channel = findNestedProperty(slackParams, 'channel', 'id');
         const text = _conn.extractTextFromPayload(slackParams).join('');
 
-        ServiceRequest.createNewThread(slackUserId, channel, text, slackParams.trigger_id)
+        ServiceRequest.startNewRequest(slackUserId, channel, text, slackParams.trigger_id)
             .catch((e) => {
                 logger('Failed to start detail collection: ' + e.toString());
             });
@@ -152,7 +142,7 @@ export const interactions: ISlackInteractionHandler[] = [{
                 const userId = findNestedProperty(slackParams, 'user', 'id');
                 const messageId = SlackMessageId.fromEncodedId(metaData);
 
-                ServiceRequest.loadExistingThread(userId, messageId.channel, messageId.ts)
+                ServiceRequest.loadThreadFromSlackEvent(userId, messageId.channel, messageId.ts)
                     .then((request) => {
                         request.create({
                             slackUserId: userId,
