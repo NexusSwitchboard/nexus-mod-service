@@ -676,11 +676,11 @@ export default class ServiceRequest {
                 transition: {
                     id: this.config.REQUEST_JIRA_COMPLETE_TRANSITION_ID
                 },
-                // fields: {
-                //     resolution: {
-                //         id: resolutionId
-                //     }
-                // },
+                fields: {
+                    resolution: {
+                        id: resolutionId
+                    }
+                },
                 update: undefined,
                 historyMetadata: undefined,
                 properties: undefined
