@@ -71,7 +71,7 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                 const info:JiraIssueSidecarData = prop;
                 const request = await ServiceRequest.loadThreadFromJiraEvent(info,payload);
                 if (request) {
-                    await request.getThread().update();
+                    await request.updateSlackThread();
                     return true;
                 }
 

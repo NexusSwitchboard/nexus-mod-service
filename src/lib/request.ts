@@ -8,7 +8,7 @@ import { getCreateRequestModalView } from "./slack/createRequestModal";
 import moduleInstance from "..";
 import { logger } from "..";
 import { SlackMessageId } from "./slackMessageId";
-import { JiraIssueSidecarData, RequestThread } from "./requestThread";
+import { JiraIssueSidecarData, RequestThread, ThreadUpdateParams } from "./requestThread";
 import { prepTitleAndDescription, replaceAll } from "./util";
 
 export enum RequestState {
@@ -212,6 +212,16 @@ export default class ServiceRequest {
         });
     }
 
+    public async updateSlackThread(threadUpdateParams?: ThreadUpdateParams) {
+        threadUpdateParams = threadUpdateParams || {};
+        const params = Object.assign({}, threadUpdateParams, {
+            slackUser: this.initiatingSlackUser,
+            jiraUser: this.initiatingJiraUser
+        });
+
+        await this.thread.update(params);
+    }
+
     public async setTicket(ticket: JiraTicket) {
         await this.thread.setTicket(ticket);
     }
@@ -244,7 +254,7 @@ export default class ServiceRequest {
 
                 } else {
                     await this.setTicket(ticket);
-                    await this.thread.update(undefined, this.initiatingSlackUser, this.initiatingJiraUser);
+                    await this.updateSlackThread();
                 }
             }
             // Now assign the user and set the ticket "in progress"
@@ -261,7 +271,7 @@ export default class ServiceRequest {
             const ticket = await this.markTicketComplete(this.ticket, this.config.REQUEST_JIRA_RESOLUTION_DISMISS);
             if (ticket) {
                 await this.setTicket(ticket);
-                await this.thread.update(undefined, this.initiatingSlackUser, this.initiatingJiraUser);
+                await this.updateSlackThread();
             } else {
                 await this.thread.addErrorReply("Failed to cancel this ticket.  This could be for one of these reasons:\n " +
                     "1. The user in slack who is trying to cancel the ticket does not have a Jira user (with the same email)\n" +
@@ -284,7 +294,7 @@ export default class ServiceRequest {
             const ticket = await this.markTicketComplete(this.ticket, this.config.REQUEST_JIRA_RESOLUTION_DONE);
             if (ticket) {
                 await this.setTicket(ticket);
-                await this.thread.update(undefined, this.initiatingSlackUser, this.initiatingJiraUser);
+                await this.updateSlackThread();
             } else {
                 await this.thread.addErrorReply("Failed to complete this ticket.  This could be for one of these reasons:\n " +
                     "1. The user in slack who is trying to complete the ticket does not have a Jira user (with the same email)\n" +
@@ -306,7 +316,7 @@ export default class ServiceRequest {
 
         try {
 
-            await this.thread.update("Working on your request...",this.initiatingSlackUser, this.initiatingJiraUser);
+            await this.updateSlackThread({message: "Working on your request..."});
 
             // check to see if there is already a request associated with this.
             if (this.ticket) {
@@ -326,11 +336,11 @@ export default class ServiceRequest {
             if (ticket) {
                 await this.setTicket(ticket);
                 this.thread.reporterSlackId = this.initiatingSlackUserId;
-                await this.thread.update(undefined, this.initiatingSlackUser, this.initiatingJiraUser);
+                await this.updateSlackThread();
 
                 return true;
             } else {
-                await this.thread.update("There was a problem submitting the issue to Jira.",this.initiatingSlackUser, this.initiatingJiraUser);
+                await this.updateSlackThread({message: "There was a problem submitting the issue to Jira."});
                 return false;
             }
         } catch (e) {

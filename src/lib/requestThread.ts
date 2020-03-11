@@ -52,6 +52,12 @@ export type JiraIssueSidecarData = {
     closerSlackId: string
 };
 
+export interface ThreadUpdateParams {
+    slackUser?: SlackPayload;
+    jiraUser?: JiraPayload;
+    message?: string;
+}
+
 export class RequestThread {
 
     public slackMessageId: SlackMessageId;
@@ -163,8 +169,8 @@ export class RequestThread {
     }
 
 
-    public async update(msg?: string, slackUser?: SlackPayload, jiraUser?: JiraPayload) {
-        await this.updateTopLevelMessage(msg,slackUser,jiraUser);
+    public async update(params: ThreadUpdateParams) {
+        await this.updateTopLevelMessage(params.message,params.slackUser,params.jiraUser);
         await this.updateActionBar();
     }
 
