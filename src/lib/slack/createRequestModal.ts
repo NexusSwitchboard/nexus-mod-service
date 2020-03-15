@@ -2,32 +2,82 @@ import { View } from '@slack/web-api';
 import { IRequestParams, ServiceComponent } from '../request';
 import { prepTitleAndDescription } from '../util';
 
+export interface IModalText {
+    label?: string,
+    hint?: string
+}
+
+export interface IModalConfig {
+    title?: string,
+    description?: string,
+    fields?: {
+        summary?: IModalText,
+        description?: IModalText,
+        type?: IModalText,
+        submit?: IModalText,
+        cancel?: IModalText
+    }
+}
+
+const defaultModalConfig = {
+    title: "Submit Request",
+    description: "This will create a ticket for you and alert a system administrator.  You  can following progress either in the associated thread or the ticket itself.\n",
+    fields: {
+        summary: {
+            label: "Summary",
+            hint: "This field cannot be more than 255 characters"
+        },
+        description: {
+            label: "Additional Information",
+            hint: "This populates the 'description' field in the created Jira Ticket (optional)"
+        },
+        type: {
+            label: "Type of Request",
+            hint: "Choose the category of request you are making"
+        },
+        submit: {
+            label: "Submit",
+        },
+        cancel: {
+            label: "Cancel",
+        }
+    }
+}
+
 /**
  * Represents the modal that is shown when the user initially
+ * @param defaults: The default values to use
+ * @param modalConfig: Configuration for text in the modal.  Any values that are not defined in the
+ *              given object will use the default values defined in defaultModalConfig.
+ * @param components: The components to use in the type dropdown
+ * @param metadata: A way to pass through data to the event handlers
  */
 export const getCreateRequestModalView = (defaults: IRequestParams,
+                                          modalConfig: IModalConfig,
                                           components: ServiceComponent[],
                                           metadata?: string): View => {
+
+    const mc:IModalConfig = Object.assign({}, defaultModalConfig, modalConfig);
     const { title, description } = prepTitleAndDescription(defaults.title, defaults.description);
 
-    return {
+    const modal:View = {
         type: 'modal',
         callback_id: 'infra_request_modal',
         private_metadata: metadata,
         notify_on_close: true,
         title: {
             type: 'plain_text',
-            text: 'Submit Infra Request',
+            text: mc.title,
             emoji: true
         },
         submit: {
             type: 'plain_text',
-            text: 'Submit',
+            text: mc.fields.submit.label,
             emoji: true
         },
         close: {
             type: 'plain_text',
-            text: 'Cancel',
+            text: mc.fields.cancel.label,
             emoji: true
         },
         blocks: [
@@ -35,7 +85,7 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
                 type: 'section',
                 text: {
                     type: 'plain_text',
-                    text: 'This will create a ticket for you and alert the Infrastructure team.  You  can following progress either in the associated thread or the ticket itself.',
+                    text: mc.description,
                     emoji: true
                 }
             },
@@ -47,11 +97,11 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
                 type: 'input',
                 hint: {
                     type: 'plain_text',
-                    text: 'This field cannot be more than 255 characters'
+                    text: mc.fields.summary.hint
                 },
                 label: {
                     type: 'plain_text',
-                    text: 'Summary',
+                    text: mc.fields.summary.label,
                     emoji: true
                 },
                 element: {
@@ -66,7 +116,7 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
                 type: 'input',
                 label: {
                     type: 'plain_text',
-                    text: 'Type of Request',
+                    text: mc.fields.type.label,
                     emoji: true
                 },
                 element: {
@@ -74,7 +124,7 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
                     type: 'static_select',
                     placeholder: {
                         type: 'plain_text',
-                        text: 'Select the type of request this is',
+                        text: mc.fields.type.hint,
                         emoji: true
                     },
                     options: components.map((c) => {
@@ -95,11 +145,11 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
                 optional: true,
                 hint: {
                     type: 'plain_text',
-                    text: 'This populates the \'description\' field in the created Jira Ticket (optional)'
+                    text: mc.fields.description.hint
                 },
                 label: {
                     type: 'plain_text',
-                    text: 'Additional Information',
+                    text: mc.fields.description.label,
                     emoji: true
                 },
                 element: {
@@ -111,4 +161,6 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
             }
         ]
     };
+
+        return modal;
 };

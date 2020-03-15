@@ -398,9 +398,13 @@ export default class ServiceRequest {
                 return false;
             }
 
+            const modalConfig = this.config.SUBMIT_MODAL_CONFIG;
+            if (!modalConfig) {
+                logger("SUBMIT_MODAL_CONFIG not specified in the module config.  Using defaults...")
+            }
             const modal = await this.slack.apiAsBot.views.open({
                 trigger_id: triggerId,
-                view: getCreateRequestModalView(requestParams, components, requestId)
+                view: getCreateRequestModalView(requestParams, modalConfig, components, requestId)
             });
 
             return modal.ok;

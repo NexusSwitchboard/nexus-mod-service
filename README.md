@@ -103,10 +103,12 @@ You will need the following configuration options set in the Slack App you creat
    1. Create a new slash command - you can call it whatever you want though the name will be used in the URL (below) 
    3. Set the request URL to https://<your_domain>/m/service/slack/commands/<command_name>
    
-2. OAuth & Permissions
+3. OAuth & Permissions
    1. Scopes - See below for the scopes that you will need to add and request permission from users to apply
    2. Bot User - Add a bot and name it whatever you want
    3. Always Show My Bot Online - Set to "On" (but not required)
+
+4. Bot Events
 
 These are the slack configuration settings that are specified in the module config and are required to connect and interact properly with Slack:
 
