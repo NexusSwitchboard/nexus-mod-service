@@ -88,7 +88,7 @@ export const interactions: ISlackInteractionHandler[] = [{
      * MESSAGE ACTION HANDLER: Create Request
      * This is the handler for when the user right clicks on a message and chooses the submit request action
      */
-    matchingConstraints: { blockId: "submit_infra_request" },
+    matchingConstraints: { callbackId: "submit_infra_request" },
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         const slackUserId = findNestedProperty(slackParams, "user", "id");
