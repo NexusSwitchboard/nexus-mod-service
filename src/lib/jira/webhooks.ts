@@ -1,8 +1,7 @@
-import { IWebhookPayload } from "@nexus-switchboard/nexus-conn-jira";
+import { IWebhookPayload, WebhookConfiguration } from "atlassian-addon-helper";
 import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 import ServiceRequest from "../request";
 import { JiraIssueSidecarData } from "../requestThread";
-import { WebhookConfiguration } from "@nexus-switchboard/nexus-conn-jira/dist/addon";
 import serviceMod, { logger } from "../../index";
 
 export default (config: ModuleConfig): WebhookConfiguration[] => {
@@ -29,7 +28,8 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                 //  the filter above so there shouldn't be a need to reverify that these
                 //  are of the right project and have the right labels.
 
-                // Hopefully, the properties were returned along with the
+                // Hopefully, custom the properties were returned along with the rest of the ticket info.  If
+                //  not we have to make a separate request to get them.
                 let prop = getNestedVal(payload, "issue.properties");
                 if (!prop) {
                     const jiraApi = serviceMod.getJira().api;

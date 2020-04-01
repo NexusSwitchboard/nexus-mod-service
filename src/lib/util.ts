@@ -1,10 +1,14 @@
-
 /**
  * Given a map of from -> to strings, this will replace all occurrences
  * of each in the given string and return the string with replacements
  * @param str The string to modify
  * @param mapObj The map of strings to map from/to
  */
+import { SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
+import { getNestedVal } from "@nexus-switchboard/nexus-extend";
+import { SlackMessageId } from "./slackMessageId";
+import { logger } from "../index";
+
 export function replaceAll(str: string, mapObj: Record<string, string>) {
     const re = new RegExp(Object.keys(mapObj).join('|'), 'gi');
 
@@ -52,4 +56,65 @@ export function prepTitleAndDescription(title: string, description: string) {
 
     return { title, description };
 
+}
+
+/**
+ * Slack API errors have useful information in them if you dig deep enough.  This
+ * will do that and return a single string to you.
+ * @param err
+ */
+export function getMessageFromSlackErr(err: SlackPayload): string {
+    const topMsg = err.toString();
+    const detailMsg = getNestedVal(err, "data.response_metadata.messages")
+
+    return `${topMsg} (${detailMsg})`
+}
+
+export type SlackRequestInfo = {
+    conversationMsg: SlackMessageId,
+    notificationChannel: string
+};
+
+/**
+ * We store slack conversation information in Jira labels by encoding the data that needs to be
+ * easily searchable.  We also use this encoded form when passing information through modals in the
+ * metadata parameter.
+ * @param data
+ */
+export function parseEncodedSlackData(data: string): SlackRequestInfo {
+        try {
+            const parts = data.split(/\|\||--/g);
+            let channel: string;
+            let ts: string;
+
+            // get the conversation channel and ts
+            if (parts.length >= 2) {
+                [channel, ts] = parts.slice(0,2);
+            }
+
+            return {
+                conversationMsg: new SlackMessageId(channel, ts),
+                notificationChannel: undefined
+            }
+        } catch (e) {
+            logger("Received invalid request ID - could not parse.");
+            return {
+                conversationMsg: undefined,
+                notificationChannel: undefined
+            };
+        }
+}
+
+/**
+ * Generate an encoded form of most important slack message data.  This is only necessary during the period between
+ * when a user has begun entering data and before a ticket has been created.  Since we use Jira ticket properties
+ * to store information about the associated slack request, we have no place to store this information before the
+ * ticket is created.  Instead, we encode that data into a single string and use it as "metadata" or "context data"
+ * in various places including slack modals and jira labels.  This helps recreate the association in cases when
+ * other methods are not working or not available.
+ *
+ * @param data
+ */
+export function createEncodedSlackData(data: SlackRequestInfo): string {
+    return `${data.conversationMsg.channel}||${data.conversationMsg.ts}`;
 }

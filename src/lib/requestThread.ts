@@ -4,7 +4,7 @@ import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 import { RequestState } from "./request";
 import { JiraTicket, JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
 import { SlackBlock, SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
-import { replaceAll } from "./util";
+import { createEncodedSlackData, replaceAll } from "./util";
 import moduleInstance from "../index";
 import { ChatPostMessageArguments, ChatUpdateArguments } from "@slack/web-api";
 
@@ -47,6 +47,7 @@ export type JiraIssueSidecarData = {
     channelId: string,
     threadId: string,
     actionMsgId: string,
+    notificationChannelId: string,
     reporterSlackId: string,
     claimerSlackId: string,
     closerSlackId: string
@@ -58,9 +59,14 @@ export interface ThreadUpdateParams {
     message?: string;
 }
 
+export type ChannelAssignments = {
+    notificationChannelId: string,
+    conversationChannelId: string
+}
+
 export class RequestThread {
 
-    public slackMessageId: SlackMessageId;
+    public conversationMessage: SlackMessageId;
     public actionMessageId: SlackMessageId;
 
     protected _reporterSlackId: string;
@@ -71,11 +77,18 @@ export class RequestThread {
     protected jira: JiraConnection;
     protected config: ModuleConfig;
 
-    constructor(ts: string, channel: string, slack: SlackConnection, jira: JiraConnection, config: ModuleConfig) {
-        this.slackMessageId = new SlackMessageId(channel, ts);
+
+    readonly channelRestrictionMode: string;
+    protected notificationChannel: string;
+
+    constructor(conversationMessage: SlackMessageId, notificationChannel: string, slack: SlackConnection, jira: JiraConnection, config: ModuleConfig) {
         this.slack = slack;
         this.jira = jira;
         this.config = config;
+
+        this.channelRestrictionMode = this.config.SLACK_CONVERSATION_RESTRICTION || "primary";
+        this.conversationMessage = conversationMessage;
+        this.notificationChannel = (notificationChannel === this.conversationMessage.channel) ? undefined : notificationChannel;
     }
 
     public get ticket(): JiraTicket {
@@ -84,7 +97,7 @@ export class RequestThread {
 
     public async setTicket(val: JiraTicket) {
         const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
-        const botProps:JiraIssueSidecarData = getNestedVal(val, `properties.${label}`);
+        const botProps: JiraIssueSidecarData = getNestedVal(val, `properties.${label}`);
         if (!botProps) {
             throw new Error("A ticket cannot be set which does not have any properties set");
         }
@@ -107,6 +120,40 @@ export class RequestThread {
         this.reporterSlackId = botProps.reporterSlackId;
         this.claimerSlackId = botProps.claimerSlackId;
         this.closerSlackId = botProps.closerSlackId;
+        this.notificationChannel = botProps.notificationChannelId;
+    }
+
+    /**
+     * Determine which channel should receive the main request conversation and which, if any, should receive
+     * notifications.
+     * @param originatingChannelId The channel which fielded in the initial request
+     * @param primaryChannelId The channel which is configured as the primary (can be undefined)
+     * @param conversationMode The configured mode of restricting conversations to primary channel (or not)
+     */
+    public static determineConversationChannel(originatingChannelId: string, primaryChannelId: string, conversationMode: string): ChannelAssignments {
+        if (primaryChannelId) {
+            // if a primary channel is set then we should check to see where the request thread should live
+            //  based on the SLACK_CONVERSATION_RESTRICTION and the initiating original channel ID
+            if (conversationMode === "primary" && primaryChannelId !== originatingChannelId) {
+                // if we get there that means that all conversations should happen in the primary channel but
+                //  that's not where the original infra request came from.
+                return {
+                    conversationChannelId: primaryChannelId,
+                    notificationChannelId: originatingChannelId
+                };
+            } else if (conversationMode === "invited" && primaryChannelId !== originatingChannelId) {
+                return {
+                    conversationChannelId: originatingChannelId,
+                    notificationChannelId: primaryChannelId
+                };
+            }
+        }
+
+        return {
+            conversationChannelId: originatingChannelId,
+            notificationChannelId: undefined
+        };
+
     }
 
     public get reporterSlackId(): string {
@@ -134,21 +181,37 @@ export class RequestThread {
     }
 
     public get channel(): string {
-        return this.slackMessageId.channel;
+        return this.conversationMessage.channel;
     }
 
     public get ts(): string {
-        return this.slackMessageId.ts;
+        return this.conversationMessage.ts;
     }
 
+    public get notificationChannelId(): string {
+        return this.notificationChannel;
+    }
 
+    /**
+     * This will create a single string value that serializes slack data for easy search within a Jira ticket.
+     * The format for this ID is as follows:
+     *  <conversation_channel_id>||<conversation_thread_ts>
+     *
+     *  So, for example, if there is a notification channel, it might look like this:
+     *      CPYJV7N20||1585535418.003600--1585535424.003800
+     *
+     *  Or without a notification channel
+     */
     public serializeId(): string {
-        return this.slackMessageId.buildRequestId();
+        return createEncodedSlackData({
+            conversationMsg: this.conversationMessage,
+            notificationChannel: this.notificationChannelId
+        });
     }
 
     public setActionThread(ts: string) {
         if (!this.actionMessageId) {
-            this.actionMessageId = new SlackMessageId(this.slackMessageId.channel, ts);
+            this.actionMessageId = new SlackMessageId(this.conversationMessage.channel, ts);
         } else {
             this.actionMessageId.ts = ts;
         }
@@ -156,7 +219,7 @@ export class RequestThread {
 
     public async getThreadHeaderMessageId(): Promise<SlackMessageId> {
         try {
-            if (!this.slackMessageId.ts) {
+            if (!this.conversationMessage.ts) {
                 logger("You cannot find a status reply without an existing source thread");
                 return undefined;
             }
@@ -170,8 +233,49 @@ export class RequestThread {
 
 
     public async update(params: ThreadUpdateParams) {
-        await this.updateTopLevelMessage(params.message,params.slackUser,params.jiraUser);
+        await this.updateTopLevelMessage(params.message, params.slackUser, params.jiraUser);
         await this.updateActionBar();
+    }
+
+    public async postMsgToNotificationChannel(actionMsg: string) {
+        if (this.notificationChannelId && this.channelRestrictionMode === "primary") {
+
+            const blocks: SlackBlock[] = [];
+
+            const state: RequestState = this.getIssueState();
+            const icon = this.iconFromState(state);
+
+            // Ticket Information
+            if (this.ticket) {
+                const ticketLink: string = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+                blocks.push(this.getSectionBlockFromText(`${icon} *<${ticketLink}|${this.ticket.key} - ${this.ticket.fields.summary}>*`));
+            }
+            blocks.push(this.getSectionBlockFromText(actionMsg));
+
+            const permaLink = await this.slack.apiAsBot.chat.getPermalink({
+                channel: this.channel,
+                message_ts: this.ts
+            });
+
+            blocks.push(this.getContextBlock([`Follow the conversation <${permaLink.permalink}|here>`]));
+
+            const lines = [];
+            lines.push(actionMsg);
+
+            if (this.ticket) {
+                lines.push(`*${this.ticket.key} - ${this.ticket.fields.summary}*`);
+                lines.push(`Current state: ${this.getIssueState()}`)
+            }
+            const text = lines.join("/n");
+
+            const options: ChatPostMessageArguments = {
+                text,
+                blocks,
+                channel: this.notificationChannelId
+            };
+
+            await this.slack.apiAsBot.chat.postMessage(options);
+        }
     }
 
     /**
@@ -256,7 +360,7 @@ export class RequestThread {
 
     public async updateTopLevelMessage(msg?: string, slackUser?: SlackPayload, jiraUser?: JiraPayload) {
 
-        const blocks = this.buildTextBlocks(msg, slackUser, jiraUser);
+        const blocks = this.buildTextBlocks(msg, false, slackUser, jiraUser);
         const plainText = this.buildPlainTextString(msg, slackUser, jiraUser);
 
         // the source request was an APP post which means we can update it without extra permissions.
@@ -297,10 +401,11 @@ export class RequestThread {
      * Creates the text blocks that should be used to as the thread's top level message.  If you want
      * a purely text-based version of this, then use the buildPlainTextString
      * @param customMsg
+     * @param compact
      * @param slackUser
      * @param jiraUser
      */
-    public buildTextBlocks(customMsg: string, slackUser?: SlackPayload, jiraUser?: JiraPayload): SlackBlock[] {
+    public buildTextBlocks(customMsg: string, compact: boolean, slackUser?: SlackPayload, jiraUser?: JiraPayload): SlackBlock[] {
 
         const blocks: SlackBlock[] = [];
 
@@ -325,7 +430,7 @@ export class RequestThread {
 
         // Add the description at the end so that only the description is hidden
         //  by Slack when the message is too long.
-        if (description) {
+        if (description && !compact) {
             const indentedDescription = replaceAll(description, { "\n": "\n> " });
             blocks.push(this.getSectionBlockFromText("> " + indentedDescription));
         }
@@ -341,7 +446,7 @@ export class RequestThread {
         } else if (jiraUser) {
             userStr = jiraUser.displayName;
         } else {
-            userStr = "Unknown User"
+            userStr = "Unknown User";
         }
         return userStr;
     }
@@ -366,14 +471,14 @@ export class RequestThread {
             return RequestState.working;
         }
 
-        const cat: string = getNestedVal(this.ticket, 'fields.status.statusCategory.name');
+        const cat: string = getNestedVal(this.ticket, "fields.status.statusCategory.name");
 
-        if (["undefined","to do","new"].indexOf(cat.toLowerCase()) >= 0) {
+        if (["undefined", "to do", "new"].indexOf(cat.toLowerCase()) >= 0) {
             return RequestState.todo;
-        } else if (["indeterminate","in progress"].indexOf(cat.toLowerCase()) >= 0) {
+        } else if (["indeterminate", "in progress"].indexOf(cat.toLowerCase()) >= 0) {
             return RequestState.claimed;
-        } else if (["complete","done"].indexOf(cat.toLowerCase()) >= 0) {
-            const resolution: string = getNestedVal(this.ticket, 'fields.resolution.name');
+        } else if (["complete", "done"].indexOf(cat.toLowerCase()) >= 0) {
+            const resolution: string = getNestedVal(this.ticket, "fields.resolution.name");
             if (resolution) {
                 if (resolution.toLowerCase() === this.config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
                     return RequestState.complete;

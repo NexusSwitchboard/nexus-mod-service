@@ -1,6 +1,7 @@
 import { View } from '@slack/web-api';
-import { IRequestParams, ServiceComponent } from '../request';
+import { IRequestParams } from '../request';
 import { prepTitleAndDescription } from '../util';
+import moduleInstance from "../..";
 
 export interface IModalText {
     label?: string,
@@ -49,18 +50,17 @@ const defaultModalConfig = {
  * @param defaults: The default values to use
  * @param modalConfig: Configuration for text in the modal.  Any values that are not defined in the
  *              given object will use the default values defined in defaultModalConfig.
- * @param components: The components to use in the type dropdown
  * @param metadata: A way to pass through data to the event handlers
  */
 export const getCreateRequestModalView = (defaults: IRequestParams,
                                           modalConfig: IModalConfig,
-                                          components: ServiceComponent[],
                                           metadata?: string): View => {
 
     const mc:IModalConfig = Object.assign({}, defaultModalConfig, modalConfig);
     const { title, description } = prepTitleAndDescription(defaults.title, defaults.description);
+    const components = moduleInstance.jiraComponents;
 
-    const modal:View = {
+    return {
         type: 'modal',
         callback_id: 'infra_request_modal',
         private_metadata: metadata,
@@ -161,6 +161,4 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
             }
         ]
     };
-
-        return modal;
 };

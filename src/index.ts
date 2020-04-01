@@ -1,21 +1,39 @@
 import createDebug from "debug";
 import { Application } from 'express';
-import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
+import { JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
 import {
     ConnectionRequest,
     NexusModule,
-    ModuleConfig
+    ModuleConfig, INexusActiveModule
 } from "@nexus-switchboard/nexus-extend";
 import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
 import loadWebhooks from "./lib/jira/webhooks";
 
+
+export interface ServiceComponent {
+    id: string,
+    name: string,
+    description: string
+}
+
 export const logger = createDebug("nexus:service");
 
 export class ServiceModule extends NexusModule {
     public name = "service";
+    public cachedComponents: ServiceComponent[];
+
+    public async initialize(active: INexusActiveModule) {
+        super.initialize(active);
+
+        await this.loadJiraProjectComponents();
+    }
+
+    public get jiraComponents () {
+        return this.cachedComponents;
+    }
 
     public loadConfig(overrides?: ModuleConfig): ModuleConfig {
         const defaults = {
@@ -32,6 +50,10 @@ export class ServiceModule extends NexusModule {
             REQUEST_JIRA_RESOLUTION_DONE: "",
             REQUEST_JIRA_DEFAULT_COMPONENT_ID: "",
             REQUEST_JIRA_SERVICE_LABEL: "",
+
+            // Slack Integration Options
+            SLACK_PRIMARY_CHANNEL: "",
+            SLACK_CONVERSATION_RESTRICTION: "", // [invited, primary]
 
             // Slack Emoji
             REQUEST_COMPLETED_SLACK_ICON: "",
@@ -110,6 +132,38 @@ export class ServiceModule extends NexusModule {
 
     public getJira(): JiraConnection {
         return this.getActiveConnection("nexus-conn-jira") as JiraConnection;
+    }
+
+
+    /**
+     * Retrieves all the components for the configured service project.  If the components have already
+     * been retrieved for this instance of the request, then return them without making a request to jira.
+     */
+    protected async loadJiraProjectComponents(): Promise<ServiceComponent[]> {
+
+        if (this.cachedComponents) {
+            return this.cachedComponents;
+        }
+
+        try {
+            const components = await this.getJira().api.projectComponents.getProjectComponents({
+                projectIdOrKey: this.activeModule.config.REQUEST_JIRA_PROJECT
+            });
+
+            this.cachedComponents = components.map((c: JiraPayload) => {
+                return {
+                    id: c.id,
+                    name: c.name,
+                    description: c.description
+                };
+            });
+
+            return this.cachedComponents;
+
+        } catch (e) {
+            logger("Exception thrown: Cannot retrieve components from Jira: " + e.toString());
+            return [];
+        }
     }
 
     public getSlack(): SlackConnection {
