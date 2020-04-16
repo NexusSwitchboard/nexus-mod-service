@@ -11,6 +11,7 @@ import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
 import loadWebhooks from "./lib/jira/webhooks";
+import { PagerDutyConnection } from './tmp/nexux-conn-pagerduty';
 import {join} from "path"
 
 export const TEMPLATE_DIR = join(__dirname, "views");
@@ -79,7 +80,12 @@ export class ServiceModule extends NexusModule {
             JIRA_HOST: "__env__",
             JIRA_USERNAME: "__env__",
             JIRA_API_KEY: "__env__",
-            JIRA_ADDON_CACHE: "__env__"
+            JIRA_ADDON_CACHE: "__env__",
+
+            // PagerDuty Credentials
+            PAGERDUTY_TOKEN: "__env__",
+            PAGERDUTY_SERVICE_DEFAULT: "__env__",
+            PAGERDUTY_ESCALATION_POLICY_DEFAULT: "__env__"
         };
 
         return overrides ? Object.assign({}, defaults, overrides) : {...defaults};
@@ -129,13 +135,19 @@ export class ServiceModule extends NexusModule {
                     interactionListeners: interactions,
                     subApp,
                 }
+            }, {
+                name: "nexus-conn-pagerduty",
+                config: {
+                    token: config.PAGERDUTY_TOKEN,
+                    serviceDefault: config.PAGERDUTY_SERVICE_DEFAULT,
+                    escalationPolicyDefault: config.PAGERDUTY_ESCALATION_POLICY_DEFAULT
+                }
             }];
     }
 
     public getJira(): JiraConnection {
         return this.getActiveConnection("nexus-conn-jira") as JiraConnection;
     }
-
 
     /**
      * Retrieves all the components for the configured service project.  If the components have already
@@ -170,6 +182,10 @@ export class ServiceModule extends NexusModule {
 
     public getSlack(): SlackConnection {
         return this.getActiveConnection("nexus-conn-slack") as SlackConnection;
+    }
+
+    public getPagerDuty(): PagerDutyConnection {
+        return this.getActiveConnection("nexus-conn-pagerduty") as PagerDutyConnection
     }
 }
 

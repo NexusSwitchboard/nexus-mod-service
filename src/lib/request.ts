@@ -4,6 +4,7 @@ import { IWebhookPayload } from "atlassian-addon-helper";
 import { JiraConnection, JiraTicket } from "@nexus-switchboard/nexus-conn-jira";
 import { SlackConnection, SlackPayload, SlackWebApiResponse } from "@nexus-switchboard/nexus-conn-slack";
 import { findProperty, getNestedVal, hasOwnProperties } from "@nexus-switchboard/nexus-extend";
+import { PagerDutyConnection, PagerDutyIncident } from './connections/nexux-conn-pagerduty';
 
 import { getCreateRequestModalView } from "./slack/createRequestModal";
 import moduleInstance from "..";
@@ -96,6 +97,11 @@ export default class ServiceRequest {
      */
     private readonly jira: JiraConnection;
 
+    /**
+     * Shortcut to the connection instance.
+     */
+    private readonly pagerDuty: PagerDutyConnection;
+
     // This is the user that acted last on the associated request from Jira.  This will be populated only
     //  when this object was created as a result of a webhook event.  Because the webhook event has
     //  all user data embedded in the event, we can just set the entire object.  Slack user is not always
@@ -118,6 +124,7 @@ export default class ServiceRequest {
     private constructor(conversationMsg: SlackMessageId, notificationChannelId?: string, slackUserId?: string, jiraWebhookPayload?: IWebhookPayload) {
         this.slack = moduleInstance.getSlack();
         this.jira = moduleInstance.getJira();
+        this.pagerDuty = moduleInstance.getPagerDuty();
 
         if (!ServiceRequest.config.REQUEST_JIRA_SERVICE_LABEL) {
             throw new Error("The REQUEST_JIRA_SERVICE_LABEL config must be set.");
@@ -646,6 +653,44 @@ export default class ServiceRequest {
 
         } catch (e) {
             logger("JIRA createIssue failed: " + e.toString());
+            return undefined;
+        }
+    }
+
+    /**
+     * Creates a PagerDuty alert if priority is critical
+     */
+    protected async createPagerDutyAlert(request: IRequestParams): Promise<PagerDutyIncident | void> {
+        try {
+             // only alert when priority is defined and is critical
+             let { priority } = request;
+             if (!priority || priority.toLowerCase() === 'critical') {
+                return Promise.resolve();
+             }
+             // create an alert in pagerduty
+             return await this.pagerDuty.createIncident({
+                headers: {
+                    From: request.reporterEmail
+                },
+                incident: {
+                    type: "incident",
+                    title: request.title,
+                    service: {
+                        id: ServiceRequest.config.PAGERDUTY_SERVICE_DEFAULT,
+                        type: "service_reference"
+                    },
+                    body: {
+                        type: "incident_body",
+                        details: request.description
+                    },
+                    escalation_policy: {
+                        id: ServiceRequest.config.PAGERDUTY_ESCALATION_POLICY_DEFAULT,
+                        type: "escalation_policy_reference"
+                    }
+                }
+             });
+        } catch (e) {
+            logger("PagerDuty alert failed: " + e.toString());
             return undefined;
         }
     }
