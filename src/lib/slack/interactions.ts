@@ -104,6 +104,26 @@ export const interactions: ISlackInteractionHandler[] = [{
             code: 200
         };
     }
+},{
+    /************
+     * MESSAGE ACTION HANDLER: Create Request
+     * This is the handler for when uses a global shortcut (meaning it's not tied to a message or a channel)
+     */
+    matchingConstraints: { callbackId: "global_start_infra_request" },
+    type: SlackInteractionType.action,
+    handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
+        const slackUserId = findNestedProperty(slackParams, "user", "id");
+        const channel = findNestedProperty(slackParams, "channel", "id");
+
+        ServiceRequest.startNewRequest(slackUserId, channel, "", slackParams.trigger_id)
+            .catch((e) => {
+                logger("Failed to start detail collection after global shortcut initiated: " + e.toString());
+            });
+
+        return {
+            code: 200
+        };
+    }
 }, {
     /************
      * MESSAGE ACTION HANDLER: Submit Request

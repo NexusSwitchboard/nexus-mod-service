@@ -11,9 +11,11 @@
     "dist/**/*"
   ],
   "scripts": {
-    "build": "tsc",
-    "build:watch": "tsc -w",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npm-run-all _copy _build",
+    "build:watch": "npm-run-all _copy _build:watch",
+    "_build": "tsc",
+    "_build:watch": "tsc -w",
+    "_copy": "copyfiles -E -u 1 src/views/**/* dist/"
   },
   "author": "",
   "license": "ISC",
@@ -21,7 +23,6 @@
     "@nexus-switchboard/nexus-conn-jira": "^0.1.8",
     "@nexus-switchboard/nexus-conn-slack": "^0.2.2",
     "@nexus-switchboard/nexus-extend": "^0.5.5",
-    "@slack/web-api": "^5.7.0",
     "assert": "^2.0.0",
     "debug": "^4.1.1",
     "lodash": "^4.17.15"
@@ -34,6 +35,8 @@
     "@types/node": "^12.12.29",
     "express": "~4.16.1",
     "tslint": "^6.0.0",
-    "typescript": "^3.8.3"
+    "typescript": "^3.8.3",
+    "copyfiles": "^2.2.0",
+    "npm-run-all": "^4.1.5"
   }
 }

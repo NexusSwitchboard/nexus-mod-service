@@ -1,0 +1,55 @@
+{
+  "type": "home",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Open Issues*\nThis is where you can find requests that are either Unclaimed or In-Progress across all channels"
+      }
+    },
+    {
+      "type": "divider"
+    } {{#if issues}}{{#each issues }},
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*{{key}} - {{summary}}*"
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*Status*\n{{status}}"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Reported by*\n{{{reporter}}}"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "<{{thread_url}}|View thread>"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    } {{/each}} {{else}},
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": ":nerd_face: *There are no open issues!*"
+      }
+    }
+    {{/if}}
+  ]
+}

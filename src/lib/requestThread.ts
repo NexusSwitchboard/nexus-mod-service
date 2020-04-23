@@ -7,6 +7,7 @@ import { SlackBlock, SlackConnection, SlackPayload } from "@nexus-switchboard/ne
 import { createEncodedSlackData, replaceAll } from "./util";
 import moduleInstance from "../index";
 import { ChatPostMessageArguments, ChatUpdateArguments } from "@slack/web-api";
+import { SlackHomeTab } from "./homeTab";
 
 export const claimButton: IssueAction = {
     code: "claim_request",
@@ -76,7 +77,6 @@ export class RequestThread {
     protected slack: SlackConnection;
     protected jira: JiraConnection;
     protected config: ModuleConfig;
-
 
     readonly channelRestrictionMode: string;
     protected notificationChannel: string;
@@ -235,6 +235,19 @@ export class RequestThread {
     public async update(params: ThreadUpdateParams) {
         await this.updateTopLevelMessage(params.message, params.slackUser, params.jiraUser);
         await this.updateActionBar();
+
+        // NOTE: Purposely not awaiting on this call as it is not required to be completed synchronously and
+        //  code slow down updates.
+        this.updateHomeTab();
+    }
+
+    /**
+     * Note that this updates asynchronously on purpose.  There is no rush on this update as it is not visible
+     * to the user unless they switch to the home tab.
+     */
+    public async updateHomeTab() {
+        const tab = new SlackHomeTab();
+        return tab.publish();
     }
 
     public async postMsgToNotificationChannel(actionMsg: string) {

@@ -11,7 +11,9 @@ import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
 import loadWebhooks from "./lib/jira/webhooks";
+import {join} from "path"
 
+export const TEMPLATE_DIR = join(__dirname, "views");
 
 export interface ServiceComponent {
     id: string,

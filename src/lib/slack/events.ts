@@ -2,6 +2,7 @@ import {SlackConnection, ISlackAckResponse, SlackEventList, SlackPayload} from "
 import {findNestedProperty, findProperty} from "@nexus-switchboard/nexus-extend";
 import moduleInstance, {logger} from "../..";
 import ServiceRequest from "../../lib/request";
+import { SlackHomeTab } from "../homeTab";
 
 /**
  * General handler for thread posts made in threads that are part of an open request.
@@ -46,5 +47,15 @@ const handlePostedThreadMessage = async (_conn: SlackConnection,
 export const events: SlackEventList = {
     message: async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         return handlePostedThreadMessage(conn, slackParams);
+    },
+    app_home_opened: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
+        const home = new SlackHomeTab(slackParams.user);
+        home.publish().catch((e) => {
+            logger("Failed to publish new home page after `app_home_opened` event received: " + e.toString());
+        });
+
+        return {
+            code: 200
+        }
     }
 };
