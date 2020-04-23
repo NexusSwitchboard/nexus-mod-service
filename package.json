@@ -20,9 +20,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nexus-switchboard/nexus-conn-jira": "^0.1.8",
-    "@nexus-switchboard/nexus-conn-slack": "^0.2.2",
-    "@nexus-switchboard/nexus-extend": "^0.5.5",
+    "@nexus-switchboard/nexus-conn-jira": "^0.1.10",
+    "@nexus-switchboard/nexus-conn-slack": "^0.2.6",
+    "@nexus-switchboard/nexus-extend": "^0.5.6",
     "assert": "^2.0.0",
     "debug": "^4.1.1",
     "lodash": "^4.17.15"
