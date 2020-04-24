@@ -15,7 +15,7 @@
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "*{{key}} - {{summary}}*"
+        "text": "*<{{ticket_url}}|{{key}}> - {{{summary}}}*"
       }
     },
     {
@@ -27,7 +27,7 @@
         },
         {
           "type": "mrkdwn",
-          "text": "*Reported by*\n{{{reporter}}}"
+          "text": "*Reported by*\n{{#if reporter}}{{{reporter}}}{{else}}_Unknown_{{/if}}"
         }
       ]
     },
@@ -36,7 +36,7 @@
       "elements": [
         {
           "type": "mrkdwn",
-          "text": "<{{thread_url}}|View thread>"
+          "text": "{{#if thread_url}}<{{thread_url}}|View thread>{{else}}_Conversation could not be found_{{/if}}"
         }
       ]
     },

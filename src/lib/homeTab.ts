@@ -10,6 +10,8 @@ import { join } from "path";
 import { TEMPLATE_DIR } from "../index";
 import { readFileSync } from "fs";
 
+import {logger} from "..";
+
 export class SlackHomeTab {
     /**
      * Shortcut to the connection instance.
@@ -67,12 +69,16 @@ export class SlackHomeTab {
                         const originalChannelId = requestInfo.notificationChannelId;
                         initiatingSlackUserId = requestInfo.reporterSlackId;
 
-                        const result: WebAPICallResult = await this.slack.apiAsBot.chat.getPermalink({
-                            channel: channelId,
-                            message_ts: threadId,
-                            originatingChannel: originalChannelId,
-                        });
-                        permalink = result.permalink as string;
+                        try {
+                            const result: WebAPICallResult = await this.slack.apiAsBot.chat.getPermalink({
+                                channel: channelId,
+                                message_ts: threadId,
+                                originatingChannel: originalChannelId,
+                            });
+                            permalink = result.permalink as string;
+                        } catch (e) {
+                            logger(`Unable to get permalink for ${issue.key}: ${e.toString()}`)
+                        }
                     }
 
                     return {
@@ -80,8 +86,8 @@ export class SlackHomeTab {
                         summary: issue.fields.summary,
                         reporter: initiatingSlackUserId ? `<@${initiatingSlackUserId}>` : 'Unknown',
                         status: issue.fields.status.name,
-                        thread_url: permalink
-
+                        thread_url: permalink,
+                        ticket_url: this.jira.keyToWebLink(this.config.JIRA_HOST, issue.key)
                     }
                 }));
             })
@@ -100,8 +106,9 @@ export class SlackHomeTab {
 
     public async getAllOpenRequests() {
         const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
+        const project = this.config.REQUEST_JIRA_PROJECT;
 
-        const jql = `labels in ("${label}-request") and statusCategory in ("To Do","In Progress")`;
+        const jql = `project="${project}" and labels in ("${label}-request") and statusCategory in ("To Do","In Progress")`;
         return this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
             jql,
             fields: ["*all"],
