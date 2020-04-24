@@ -866,14 +866,10 @@ export default class ServiceRequest {
      * Analyzes a message payload and determine if it's a bot message from the given App ID.  If no
      * bot id is given then it just returns whether it's a bot message.
      * @param msg
-     * @param username
+     * @param specificBotname
      */
-    public static isBotMessage(msg: SlackPayload, username: string) {
-        if (msg.subtype && msg.subtype === "bot_message") {
-            return msg.username.toLowerCase() === username.toLowerCase();
-        } else {
-            return false;
-        }
+    public static isBotMessage(msg: SlackPayload, specificBotname?: string) {
+        return msg.bot_profile && (!specificBotname || specificBotname === msg.bot_profile.name)
     }
 
     protected static get config() {
@@ -881,7 +877,7 @@ export default class ServiceRequest {
     }
 
     protected async getInitiatingSlackUserObject(): Promise<SlackPayload> {
-        if (!this._initiatingSlackUser) {
+        if (!this._initiatingSlackUser && this.initiatingSlackUserId) {
             this._initiatingSlackUser = this.getSlackUser(this.initiatingSlackUserId)
         }
 

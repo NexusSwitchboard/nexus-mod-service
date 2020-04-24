@@ -235,10 +235,6 @@ export class RequestThread {
     public async update(params: ThreadUpdateParams) {
         await this.updateTopLevelMessage(params.message, params.slackUser, params.jiraUser);
         await this.updateActionBar();
-
-        // NOTE: Purposely not awaiting on this call as it is not required to be completed synchronously and
-        //  code slow down updates.
-        this.updateHomeTab();
     }
 
     /**

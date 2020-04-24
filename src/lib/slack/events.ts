@@ -1,6 +1,6 @@
 import {SlackConnection, ISlackAckResponse, SlackEventList, SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import {findNestedProperty, findProperty} from "@nexus-switchboard/nexus-extend";
-import moduleInstance, {logger} from "../..";
+import {logger} from "../..";
 import ServiceRequest from "../../lib/request";
 import { SlackHomeTab } from "../homeTab";
 
@@ -12,10 +12,8 @@ import { SlackHomeTab } from "../homeTab";
 const handlePostedThreadMessage = async (_conn: SlackConnection,
                                          slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-    const config = moduleInstance.getActiveModuleConfig();
-
     // ignore any message that is posted by a bot.
-    if (!ServiceRequest.isBotMessage(slackParams.message || slackParams, config.SLACK_BOT_USERNAME)) {
+    if (!ServiceRequest.isBotMessage(slackParams.message || slackParams)) {
 
         // then see if this is associated with a request ticket.
         const channel = findProperty(slackParams, "channel");
