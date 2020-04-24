@@ -2,7 +2,7 @@ import { WebAPICallResult } from "@slack/web-api";
 
 import { JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
 import { SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
-import { ModuleConfig } from "@nexus-switchboard/nexus-extend";
+import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 
 import moduleInstance from "..";
 import Handlebars from "handlebars";
@@ -60,11 +60,12 @@ export class SlackHomeTab {
                     let initiatingSlackUserId: string;
                     let permalink: string;
 
-                    if (issue.properties) {
-                        const channelId = issue.properties[label].channelId;
-                        const threadId = issue.properties[label].threadId;
-                        const originalChannelId = issue.properties[label].notificationChannelId;
-                        initiatingSlackUserId = issue.properties[label].reporterSlackId;
+                    const requestInfo = getNestedVal(issue, `properties.${label}`)
+                    if (requestInfo) {
+                        const channelId = requestInfo.channelId;
+                        const threadId = requestInfo.threadId;
+                        const originalChannelId = requestInfo.notificationChannelId;
+                        initiatingSlackUserId = requestInfo.reporterSlackId;
 
                         const result: WebAPICallResult = await this.slack.apiAsBot.chat.getPermalink({
                             channel: channelId,
