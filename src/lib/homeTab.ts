@@ -10,7 +10,7 @@ import { join } from "path";
 import { TEMPLATE_DIR } from "../index";
 import { readFileSync } from "fs";
 
-import {logger} from "..";
+import { logger } from "..";
 
 export class SlackHomeTab {
     /**
@@ -39,13 +39,13 @@ export class SlackHomeTab {
      */
     private readonly userId: string;
 
-    constructor (userId?: string) {
+    constructor(userId?: string) {
         this.slack = moduleInstance.getSlack();
         this.jira = moduleInstance.getJira();
         this.config = moduleInstance.getActiveModuleConfig();
         this.userId = userId;
 
-        const txt = readFileSync(join(TEMPLATE_DIR, "home_tab.json"), 'utf8');
+        const txt = readFileSync(join(TEMPLATE_DIR, "home_tab.json"), "utf8");
         this.homeTabTemplate = Handlebars.compile(txt);
 
     }
@@ -62,7 +62,7 @@ export class SlackHomeTab {
                     let initiatingSlackUserId: string;
                     let permalink: string;
 
-                    const requestInfo = getNestedVal(issue, `properties.${label}`)
+                    const requestInfo = getNestedVal(issue, `properties.${label}`);
                     if (requestInfo) {
                         const channelId = requestInfo.channelId;
                         const threadId = requestInfo.threadId;
@@ -73,22 +73,22 @@ export class SlackHomeTab {
                             const result: WebAPICallResult = await this.slack.apiAsBot.chat.getPermalink({
                                 channel: channelId,
                                 message_ts: threadId,
-                                originatingChannel: originalChannelId,
+                                originatingChannel: originalChannelId
                             });
                             permalink = result.permalink as string;
                         } catch (e) {
-                            logger(`Unable to get permalink for ${issue.key}: ${e.toString()}`)
+                            logger(`Unable to get permalink for ${issue.key}: ${e.toString()}`);
                         }
                     }
 
                     return {
                         key: issue.key,
                         summary: issue.fields.summary,
-                        reporter: initiatingSlackUserId ? `<@${initiatingSlackUserId}>` : 'Unknown',
+                        reporter: initiatingSlackUserId ? `<@${initiatingSlackUserId}>` : "Unknown",
                         status: issue.fields.status.name,
                         thread_url: permalink,
                         ticket_url: this.jira.keyToWebLink(this.config.JIRA_HOST, issue.key)
-                    }
+                    };
                 }));
             })
             .then((tmplData) => {
@@ -100,20 +100,21 @@ export class SlackHomeTab {
                 return this.slack.apiAsBot.views.publish({
                     user_id: this.userId,
                     view
-                })
+                });
             });
     }
 
     public async getAllOpenRequests() {
         const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
         const project = this.config.REQUEST_JIRA_PROJECT;
+        const issueTypeId = this.config.REQUEST_JIRA_ISSUE_TYPE_ID;
 
-        const jql = `project="${project}" and labels in ("${label}-request") and statusCategory in ("To Do","In Progress")`;
+        const jql = `issuetype=${issueTypeId} and project="${project}" and labels in ("${label}-request") and statusCategory in ("To Do","In Progress")`;
         return this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
             jql,
             fields: ["*all"],
             properties: [label]
-        })
+        });
     }
 
 }
