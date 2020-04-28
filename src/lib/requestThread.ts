@@ -3,10 +3,11 @@ import { logger } from "..";
 import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 import { RequestState } from "./request";
 import { JiraTicket, JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
-import { SlackBlock, SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
+import { SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
 import { createEncodedSlackData, replaceAll } from "./util";
 import moduleInstance from "../index";
 import { ChatPostMessageArguments, ChatUpdateArguments } from "@slack/web-api";
+import { KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import { SlackHomeTab } from "./homeTab";
 
 export const claimButton: IssueAction = {
@@ -249,7 +250,7 @@ export class RequestThread {
     public async postMsgToNotificationChannel(actionMsg: string) {
         if (this.notificationChannelId && this.channelRestrictionMode === "primary") {
 
-            const blocks: SlackBlock[] = [];
+            const blocks: (KnownBlock | Block)[] = [];
 
             const state: RequestState = this.getIssueState();
             const icon = this.iconFromState(state);
@@ -382,17 +383,18 @@ export class RequestThread {
         });
     }
 
-    protected getSectionBlockFromText(text: string): SlackBlock {
+    protected getSectionBlockFromText(sectionTitle: string, fields?: (PlainTextElement | MrkdwnElement)[]): (KnownBlock | Block) {
         return {
             type: "section",
             text: {
                 type: "mrkdwn",
-                text
-            }
+                text: sectionTitle
+            },
+            fields
         };
     }
 
-    protected getContextBlock(text: string[]): SlackBlock {
+    protected getContextBlock(text: string[]): (KnownBlock | Block) {
         const elements = text.map((t) => {
             return {
                 type: "mrkdwn",
@@ -414,9 +416,9 @@ export class RequestThread {
      * @param slackUser
      * @param jiraUser
      */
-    public buildTextBlocks(customMsg: string, compact: boolean, slackUser?: SlackPayload, jiraUser?: JiraPayload): SlackBlock[] {
+    public buildTextBlocks(customMsg: string, compact: boolean, slackUser?: SlackPayload, jiraUser?: JiraPayload): (KnownBlock | Block)[] {
 
-        const blocks: SlackBlock[] = [];
+        const blocks: (KnownBlock | Block)[] = [];
 
         const state: RequestState = this.getIssueState();
         const icon = this.iconFromState(state);
@@ -425,16 +427,18 @@ export class RequestThread {
         let description = "";
         if (this.ticket) {
 
+            const fields = this.getParticipantsAsFields(slackUser, jiraUser);
+            fields.push(this.getPriorityField());
+
             const ticketLink: string = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
-            blocks.push(this.getSectionBlockFromText(`${icon} *<${ticketLink}|${this.ticket.key} - ${this.ticket.fields.summary}>*`));
+            const sectionTitle = `${icon} *<${ticketLink}|${this.ticket.key} - ${this.ticket.fields.summary}>*`;
+            blocks.push(this.getSectionBlockFromText(sectionTitle, fields));
 
             description = this.ticket.fields.description || undefined;
         }
 
-        const userStr = RequestThread.getBestUserString(slackUser, jiraUser);
-        const status = this.getLastActionText(state, userStr, customMsg);
-        if (status) {
-            blocks.push(this.getContextBlock([status]));
+        if (customMsg) {
+            blocks.push(this.getContextBlock([customMsg]));
         }
 
         // Add the description at the end so that only the description is hidden
@@ -460,7 +464,7 @@ export class RequestThread {
         return userStr;
     }
 
-    public static buildActionBarHeader(): SlackBlock[] {
+    public static buildActionBarHeader(): (KnownBlock | Block)[] {
         return [{
             type: "section",
             text: {
@@ -505,7 +509,7 @@ export class RequestThread {
         const state = this.getIssueState();
         const actions = this.getMessageActions(state);
 
-        const blocks: SlackBlock[] = RequestThread.buildActionBarHeader();
+        const blocks: (KnownBlock | Block)[] = RequestThread.buildActionBarHeader();
 
         if (actions.length > 0) {
             blocks.push({
@@ -586,11 +590,15 @@ export class RequestThread {
             description = this.ticket.fields.description || undefined;
         }
 
-        const state = this.getIssueState();
-        const userStr = RequestThread.getBestUserString(slackUser, jiraUser);
-        const status = this.getLastActionText(state, userStr, customMsg);
-        if (status) {
-            lines.push(status);
+        // This takes the fields and converts them to flat text.
+        const participants = this.getParticipantsAsFields(slackUser, jiraUser);
+        participants.forEach((p)=> {
+            lines.push(p.text)
+        });
+
+        // Add whatever custom message was passed into this (if any)
+        if (customMsg) {
+            lines.push(customMsg);
         }
 
         // Add the description at the end so that only the description is hidden
@@ -623,22 +631,71 @@ export class RequestThread {
         }
     }
 
+    private getPriorityField(): (MrkdwnElement | PlainTextElement) {
 
-    private getLastActionText(state: RequestState, userName: string, msg: string) {
-        if (state === RequestState.todo) {
-            return `Reported by: ${userName}`;
-        } else if (state === RequestState.claimed) {
-            return `Reported by: <@${this.reporterSlackId}>\nClaimed by: ${userName}`;
+        const jiraPriority = getNestedVal(this.ticket, "fields.priority");
+
+        if (jiraPriority) {
+            const priorityInfo = moduleInstance.cachedPreparedPriorities.find((p)=>{
+                return p.jiraId === jiraPriority.id
+            });
+
+            const emoji = getNestedVal(priorityInfo, 'slackEmoji');
+
+            return {
+                type: "mrkdwn",
+                text: `*Priority*\n`+
+                    `${emoji ? priorityInfo.slackEmoji : ""} ` +
+                    `${jiraPriority.name }`
+            }
+        } else {
+            return {
+                type: "mrkdwn",
+                text: `*Priority*\nNot Set`
+            }
+        }
+    }
+
+
+
+    /**
+     * This will take information about the slack or Jira user that performed the last action
+     * and combine that with the known reporter of the issue to return two at most two field objects
+     * that can be displayed as part of the top level issue message.
+     * @param slackUser
+     * @param jiraUser
+     */
+    private getParticipantsAsFields(slackUser: SlackPayload, jiraUser: JiraPayload): (MrkdwnElement|PlainTextElement)[] {
+
+        const state = this.getIssueState();
+        const userStr = RequestThread.getBestUserString(slackUser, jiraUser);
+
+        const fields: (MrkdwnElement|PlainTextElement)[] = [
+            {
+                type: "mrkdwn",
+                text: `*Reported by*\n<@${this.reporterSlackId}>`
+            }
+        ];
+
+
+        if (state === RequestState.claimed) {
+            fields.push({
+                type: "mrkdwn",
+                text: `*Claimed by*\n ${userStr}`
+            });
         } else if (state === RequestState.complete) {
-            return `Reported by: <@${this.reporterSlackId}>\nCompleted by ${userName}`;
+            fields.push({
+                type: "mrkdwn",
+                text: `*Completed by*\n ${userStr}`
+            });
         } else if (state === RequestState.cancelled) {
-            return `Reported by: <@${this.reporterSlackId}>\nCancelled by ${userName}`;
-        } else if (state === RequestState.error) {
-            return `${msg ? msg : "Ummm... there was a problem"}}`;
-        } else if (state === RequestState.working) {
-            return `${msg || "Working..."}`;
+            fields.push({
+                type: "mrkdwn",
+                text: `*Cancelled by*\n ${userStr}`
+            });
         }
 
-        return undefined;
+        return fields;
     }
+
 }

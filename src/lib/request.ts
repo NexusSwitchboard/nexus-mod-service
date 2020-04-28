@@ -4,7 +4,7 @@ import { IWebhookPayload } from "atlassian-addon-helper";
 import { JiraConnection, JiraTicket } from "@nexus-switchboard/nexus-conn-jira";
 import { SlackConnection, SlackPayload, SlackWebApiResponse } from "@nexus-switchboard/nexus-conn-slack";
 import { findProperty, getNestedVal, hasOwnProperties } from "@nexus-switchboard/nexus-extend";
-import { PagerDutyConnection, PagerDutyIncident } from './connections/nexux-conn-pagerduty';
+import { PagerDutyConnection } from "@nexus-switchboard/nexus-conn-pagerduty";
 
 import { getCreateRequestModalView } from "./slack/createRequestModal";
 import moduleInstance from "..";
@@ -80,12 +80,12 @@ export default class ServiceRequest {
     /**
      * Statically caching resolved links between slack and Jira (to avoid expensive calls)
      */
-    private static  slackToJiraUserMap: { [index: string]: JiraPayload } = {};
+    private static slackToJiraUserMap: { [index: string]: JiraPayload } = {};
 
     /**
      * Statically caching resolved Slack user object to avoid redundant expensive calls
      */
-    private  static slackUserIdToProfileMap: { [index: string]: SlackPayload } = {};
+    private static slackUserIdToProfileMap: { [index: string]: SlackPayload } = {};
 
     /**
      * Shortcut to the connection instance.
@@ -178,7 +178,7 @@ export default class ServiceRequest {
      *          occurred.  This could be the primary channel or another channel in which infrabot was invited.
      * @param values This is the
      */
-    public static async finishRequestCreation(slackUserId: string, channelId: string, values: Record<string,any>) {
+    public static async finishRequestCreation(slackUserId: string, channelId: string, values: Record<string, any>) {
 
         try {
             const slack = moduleInstance.getSlack();
@@ -205,10 +205,10 @@ export default class ServiceRequest {
                 slackUserId,
                 title: values.summary,
                 description: values.description,
-                priority: "medium",
+                priority: values.priority,
                 components: [values.category]
             });
-        } catch(e) {
+        } catch (e) {
             logger("There was a problem processing the infra request submission: " + e.toString());
         }
     }
@@ -366,7 +366,7 @@ export default class ServiceRequest {
         }
     }
 
-    public getThread() : RequestThread {
+    public getThread(): RequestThread {
         return this.thread;
     };
 
@@ -374,7 +374,7 @@ export default class ServiceRequest {
 
         try {
 
-            await this.updateSlackThread({message: "Working on your request..."});
+            await this.updateSlackThread({ message: "Working on your request..." });
 
             // check to see if there is already a request associated with this.
             if (this.ticket) {
@@ -400,7 +400,7 @@ export default class ServiceRequest {
 
                 return true;
             } else {
-                await this.updateSlackThread({message: "There was a problem submitting the issue to Jira."});
+                await this.updateSlackThread({ message: "There was a problem submitting the issue to Jira." });
                 await this.thread.postMsgToNotificationChannel(
                     `Request submitted by <@${this.thread.reporterSlackId}> failed to create a ticket.`);
 
@@ -456,7 +456,7 @@ export default class ServiceRequest {
         try {
             const modalConfig = ServiceRequest.config.SUBMIT_MODAL_CONFIG;
             if (!modalConfig) {
-                logger("SUBMIT_MODAL_CONFIG not specified in the module config.  Using defaults...")
+                logger("SUBMIT_MODAL_CONFIG not specified in the module config.  Using defaults...");
             }
 
             const view = getCreateRequestModalView(requestParams, modalConfig, requestParams.channelId);
@@ -490,8 +490,8 @@ export default class ServiceRequest {
             } else if (this.isJiraTriggered) {
 
                 const issue = this.jiraWebhookData.issue;
-                if (this.jiraWebhookData.properties){
-                    const props:{[index: string]: any} = {};
+                if (this.jiraWebhookData.properties) {
+                    const props: { [index: string]: any } = {};
                     this.jiraWebhookData.properties.forEach((prop: any) => {
                         props[prop.key] = prop.value;
                     });
@@ -575,12 +575,6 @@ export default class ServiceRequest {
      */
     protected async createTicket(request: IRequestParams): Promise<JiraTicket> {
         try {
-            // Get the priority ID from a given priority name.
-            let priorityId = await this.jira.getPriorityIdFromName(request.priority);
-            if (!priorityId) {
-                logger(`Unable to find the priority "${request.priority}" so defaulting to medium (2)`);
-                priorityId = 2;
-            }
 
             // Note: In ticket creation, we remove invalid characters from title -
             //  jira will reject any summary that has a newline in it, for example
@@ -593,6 +587,7 @@ export default class ServiceRequest {
             const slackUser = await this.getInitiatingSlackUserObject();
             const jiraUser = await this.getJiraUserFromEmail(getNestedVal(slackUser, "profile.email"));
             const fromName = jiraUser ? undefined : getNestedVal(slackUser, "profile.real_name");
+
 
             if (fromName) {
                 description += `\nSubmitted by ${fromName}`;
@@ -609,7 +604,7 @@ export default class ServiceRequest {
                         id: ServiceRequest.config.REQUEST_JIRA_ISSUE_TYPE_ID
                     },
                     priority: {
-                        id: priorityId.toString()
+                        id: request.priority
                     },
                     labels: request.labels || [],
                     components: request.components ? request.components.map((c) => {
@@ -649,6 +644,12 @@ export default class ServiceRequest {
                 await this.setReporter(result.key, jiraUser);
             }
 
+            // Now check to see if we need to send a pager duty alert
+            const priorityInfo = moduleInstance.lookupPriorityByJiraId(request.priority);
+            if (priorityInfo && priorityInfo.triggersPagerDuty) {
+                this.createPagerDutyAlert(request);
+            }
+
             return await this.getJiraIssue(result.key);
 
         } catch (e) {
@@ -660,19 +661,12 @@ export default class ServiceRequest {
     /**
      * Creates a PagerDuty alert if priority is critical
      */
-    protected async createPagerDutyAlert(request: IRequestParams): Promise<PagerDutyIncident | void> {
+    protected async createPagerDutyAlert(request: IRequestParams) {
         try {
-             // only alert when priority is defined and is critical
-             let { priority } = request;
-             if (!priority || priority.toLowerCase() === 'critical') {
-                return Promise.resolve();
-             }
-             // create an alert in pagerduty
-             return await this.pagerDuty.createIncident({
-                headers: {
-                    From: request.reporterEmail
-                },
-                incident: {
+            // create an alert in pagerduty
+            return await this.pagerDuty.api.incidents.createIncident(request.reporterEmail,
+                {
+                    incident: {
                     type: "incident",
                     title: request.title,
                     service: {
@@ -688,7 +682,7 @@ export default class ServiceRequest {
                         type: "escalation_policy_reference"
                     }
                 }
-             });
+            });
         } catch (e) {
             logger("PagerDuty alert failed: " + e.toString());
             return undefined;
@@ -914,7 +908,7 @@ export default class ServiceRequest {
      * @param specificBotname
      */
     public static isBotMessage(msg: SlackPayload, specificBotname?: string) {
-        return msg.bot_profile && (!specificBotname || specificBotname === msg.bot_profile.name)
+        return msg.bot_profile && (!specificBotname || specificBotname === msg.bot_profile.name);
     }
 
     protected static get config() {
@@ -923,7 +917,7 @@ export default class ServiceRequest {
 
     protected async getInitiatingSlackUserObject(): Promise<SlackPayload> {
         if (!this._initiatingSlackUser && this.initiatingSlackUserId) {
-            this._initiatingSlackUser = this.getSlackUser(this.initiatingSlackUserId)
+            this._initiatingSlackUser = this.getSlackUser(this.initiatingSlackUserId);
         }
 
         return this._initiatingSlackUser;

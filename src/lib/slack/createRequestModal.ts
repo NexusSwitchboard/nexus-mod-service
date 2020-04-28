@@ -1,7 +1,7 @@
 import { View } from '@slack/web-api';
 import { IRequestParams } from '../request';
 import { prepTitleAndDescription } from '../util';
-import moduleInstance from "../..";
+import moduleInstance, { ServicePriority } from "../..";
 
 export interface IModalText {
     label?: string,
@@ -15,6 +15,7 @@ export interface IModalConfig {
         summary?: IModalText,
         description?: IModalText,
         type?: IModalText,
+        priority?: IModalText,
         submit?: IModalText,
         cancel?: IModalText
     }
@@ -22,7 +23,7 @@ export interface IModalConfig {
 
 const defaultModalConfig = {
     title: "Submit Request",
-    description: "This will create a ticket for you and alert a system administrator.  You  can following progress either in the associated thread or the ticket itself.\n",
+    description: "Once submitted, you can follow progress either in Slack or in Jira.\n",
     fields: {
         summary: {
             label: "Summary",
@@ -31,6 +32,10 @@ const defaultModalConfig = {
         description: {
             label: "Additional Information",
             hint: "This populates the 'description' field in the created Jira Ticket (optional)"
+        },
+        priority: {
+            label: "Priority",
+            hint: "Some priorities will trigger a PagerDuty incident"
         },
         type: {
             label: "Type of Request",
@@ -59,6 +64,8 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
     const mc:IModalConfig = Object.assign({}, defaultModalConfig, modalConfig);
     const { title, description } = prepTitleAndDescription(defaults.title, defaults.description);
     const components = moduleInstance.jiraComponents;
+    const priorities = moduleInstance.preparedPriorities;
+    const triggerMsg = "Selecting this will generate a PagerDuty alert";
 
     return {
         type: 'modal',
@@ -134,6 +141,38 @@ export const getCreateRequestModalView = (defaults: IRequestParams,
                                     text: c.name
                                 },
                                 value: c.id
+                            };
+                        }
+                    )
+                }
+            },
+            {
+                block_id: 'priority_input',
+                type: "input",
+                label: {
+                    "type": "plain_text",
+                    "text": mc.fields.priority.label,
+                    "emoji": true
+                },
+                element: {
+                    action_id: 'priority',
+                    type: 'static_select',
+                    placeholder: {
+                        type: 'plain_text',
+                        text: mc.fields.priority.hint,
+                        emoji: true
+                    },
+                    options: priorities.map((p: ServicePriority) => {
+                            return {
+                                text: {
+                                    type: 'plain_text',
+                                    text: p.name
+                                },
+                                value: p.jiraId,
+                                description: {
+                                    type: "plain_text",
+                                    text: p.triggersPagerDuty ? triggerMsg : p.description
+                                }
                             };
                         }
                     )
