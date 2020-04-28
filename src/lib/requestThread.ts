@@ -284,7 +284,13 @@ export class RequestThread {
                 channel: this.notificationChannelId
             };
 
-            await this.slack.apiAsBot.chat.postMessage(options);
+            try {
+                await this.slack.apiAsBot.chat.postMessage(options);
+            } catch (e) {
+                logger("Unable to send an update to the notification channel " +
+                    "probably because the channel where this was initiated is " +
+                    "private to the bot.  Error: " + e.toString());
+            }
         }
     }
 
@@ -444,11 +450,22 @@ export class RequestThread {
         // Add the description at the end so that only the description is hidden
         //  by Slack when the message is too long.
         if (description && !compact) {
-            const indentedDescription = replaceAll(description, { "\n": "\n> " });
+
+            // Replace all newlines with quote markdown characters so that
+            // it will appear with gray line to the left.  Also restrict the length
+            //  of the output to < 3000 characters which is the limit for
+            //  text blocks in slack.
+            const indentedDescription = this.getIndentedDescription(description);
+
             blocks.push(this.getSectionBlockFromText("> " + indentedDescription));
         }
 
         return blocks;
+    }
+
+    private getIndentedDescription(description: string) {
+        return replaceAll(description,
+            { "\n": "\n> " }).substr(0, 500);
     }
 
     private static getBestUserString(slackUser: SlackPayload, jiraUser: JiraPayload) {
@@ -604,7 +621,7 @@ export class RequestThread {
         // Add the description at the end so that only the description is hidden
         //  by Slack when the message is too long.
         if (description) {
-            lines.push(description);
+            lines.push(this.getIndentedDescription(description));
         }
 
         return lines.join("\n");
