@@ -305,6 +305,7 @@ export default class ServiceRequest {
                     await this.thread.postMsgToNotificationChannel(
                         `Ticket submitted by <@${this.thread.reporterSlackId}> was claimed and started`);
 
+                    await this.thread.notifyReporterOfClaimedTicket()
                 }
             }
             // Now assign the user and set the ticket "in progress"
@@ -326,6 +327,7 @@ export default class ServiceRequest {
                 await this.thread.postMsgToNotificationChannel(
                     `Ticket submitted by <@${this.thread.reporterSlackId}> was closed without resolution`);
 
+                await this.thread.notifyReporterOfCancelledTicket();
             } else {
                 await this.thread.addErrorReply("Failed to cancel this ticket.  This could be for one of these reasons:\n " +
                     "1. The user in slack who is trying to cancel the ticket does not have a Jira user (with the same email)\n" +
@@ -352,6 +354,8 @@ export default class ServiceRequest {
 
                 await this.thread.postMsgToNotificationChannel(
                     `Ticket submitted by <@${this.thread.reporterSlackId}> was completed`);
+
+                await this.thread.notifyReporterOfCompletion()
 
             } else {
                 await this.thread.addErrorReply("Failed to complete this ticket.  This could be for one of these reasons:\n " +

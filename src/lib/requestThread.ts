@@ -82,6 +82,8 @@ export class RequestThread {
     readonly channelRestrictionMode: string;
     protected notificationChannel: string;
 
+    protected cachedPermalinks: Record<string, string>;
+
     constructor(conversationMessage: SlackMessageId, notificationChannel: string, slack: SlackConnection, jira: JiraConnection, config: ModuleConfig) {
         this.slack = slack;
         this.jira = jira;
@@ -89,6 +91,7 @@ export class RequestThread {
 
         this.channelRestrictionMode = this.config.SLACK_CONVERSATION_RESTRICTION || "primary";
         this.conversationMessage = conversationMessage;
+        this.cachedPermalinks = {};
         this.notificationChannel = (notificationChannel === this.conversationMessage.channel) ? undefined : notificationChannel;
     }
 
@@ -245,6 +248,32 @@ export class RequestThread {
     public async updateHomeTab() {
         const tab = new SlackHomeTab();
         return tab.publish();
+    }
+
+    /**
+     * Retrieves a permalink from a channel and string.  It uses the API call to
+     * get the link to ensure that it's correct but it will cache the links if multiple calls with the
+     * same channel/ts are made.
+     * @param channel The channel of the link
+     * @param ts The timestamp of the link.
+     */
+    public async getPermalink(channel: string, ts: string) {
+        let permalink;
+        const key = `${channel}|${ts}`;
+        if (!(key in this.cachedPermalinks)) {
+             const results = await this.slack.apiAsBot.chat.getPermalink({
+                channel: this.channel,
+                message_ts: this.ts
+             });
+
+             if (results.ok) {
+                permalink = results.permalink;
+             }
+
+            this.cachedPermalinks[key] = permalink as string;
+        }
+
+        return this.cachedPermalinks[key]
     }
 
     public async postMsgToNotificationChannel(actionMsg: string) {
@@ -491,6 +520,65 @@ export class RequestThread {
         }];
     }
 
+    /**
+     * Sends a message to the reporter with information about the ticket
+     * that was just completed and a link to the conversation where it all went down.
+     */
+    public async notifyReporterOfCompletion() {
+        if (this.reporterSlackId) {
+            const permalink = await this.getPermalink(this.channel, this.ts);
+            const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+            const text = `:tada: Hey! The request you submitted (<${jiraLink}|${this.ticket.key}>) has been marked complete.  <${permalink}|Click here to visit the thread in Slack>`;
+            await this.notifyUserDirectly(this.reporterSlackId, text);
+        }
+    }
+
+    /**
+     * Sends a message to the reporter with information about the ticket
+     * that was just completed and a link to the conversation where it all went down.
+     */
+    public async notifyReporterOfClaimedTicket() {
+        if (this.reporterSlackId) {
+            const permalink = await this.getPermalink(this.channel, this.ts);
+            const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+            const text = `:rocket: Guess what? The request you submitted (<${jiraLink}|${this.ticket.key}>) has been claimed!  <${permalink}|Click here to visit the thread in Slack>`;
+            await this.notifyUserDirectly(this.reporterSlackId, text);
+        }
+    }
+
+    /**
+     * Sends a message to the reporter with information about the ticket
+     * that was just completed and a link to the conversation where it all went down.
+     */
+    public async notifyReporterOfCancelledTicket() {
+        if (this.reporterSlackId) {
+            const permalink = await this.getPermalink(this.channel, this.ts);
+            const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+            const text = `:face_with_hand_over_mouth: The request you submitted (<${jiraLink}|${this.ticket.key}>) has been cancelled.  If that's a surprise to you, <${permalink}|check out the thread in the main service channel>`;
+            await this.notifyUserDirectly(this.reporterSlackId, text);
+        }
+    }
+
+    /**
+     * Utility function to send a message to a user through direct message.
+     * @param slackUserId The ID of the user to send to
+     * @param msg The message to send.
+     */
+    public async notifyUserDirectly(slackUserId: string, msg: string) {
+        const text = msg;
+        const options: ChatPostMessageArguments = {
+            text,
+            blocks: [this.getSectionBlockFromText(msg)],
+            channel: slackUserId,
+            as_user: true
+        };
+
+        try {
+            await this.slack.apiAsBot.chat.postMessage(options);
+        } catch (e) {
+            logger("Unable to notify the user directly probably because the app does not have the necessary permissions.  Error: " + e.toString());
+        }
+    }
 
     /**
      * Maps an issue's status to a request state.
@@ -653,7 +741,7 @@ export class RequestThread {
         const jiraPriority = getNestedVal(this.ticket, "fields.priority");
 
         if (jiraPriority) {
-            const priorityInfo = moduleInstance.cachedPreparedPriorities.find((p)=>{
+            const priorityInfo = moduleInstance.preparedPriorities.find((p)=>{
                 return p.jiraId === jiraPriority.id
             });
 
