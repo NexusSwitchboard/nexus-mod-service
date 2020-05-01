@@ -154,6 +154,9 @@ export class ServiceModule extends NexusModule {
             JIRA_USERNAME: "__env__",
             JIRA_API_KEY: "__env__",
             JIRA_ADDON_CACHE: "__env__",
+            JIRA_ADDON_KEY: "",
+            JIRA_ADDON_NAME: "",
+            JIRA_ADDON_DESCRIPTION: "",
 
             // PagerDuty Credentials
             PAGERDUTY_TOKEN: "__env__",
@@ -179,8 +182,9 @@ export class ServiceModule extends NexusModule {
                     subApp,
 
                     addon: {
-                        key: "service-addon",
-                        name: "Service Jira Addon"
+                        key: config.JIRA_ADDON_KEY,
+                        name: config.JIRA_ADDON_NAME,
+                        description: config.JIRA_ADDON_DESCRIPTION
                     },
 
                     baseUrl: `${this.globalConfig.baseUrl}${this.moduleRootPath}`,
