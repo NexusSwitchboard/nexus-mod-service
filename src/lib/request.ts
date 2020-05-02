@@ -668,7 +668,8 @@ export default class ServiceRequest {
     protected async createPagerDutyAlert(request: IRequestParams) {
         try {
             // create an alert in pagerduty
-            return await this.pagerDuty.api.incidents.createIncident(request.reporterEmail,
+            return await this.pagerDuty.api.incidents.createIncident(
+                ServiceRequest.config.PAGERDUTY_FROM_EMAIL,
                 {
                     incident: {
                     type: "incident",

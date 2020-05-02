@@ -161,7 +161,8 @@ export class ServiceModule extends NexusModule {
             // PagerDuty Credentials
             PAGERDUTY_TOKEN: "__env__",
             PAGERDUTY_SERVICE_DEFAULT: "__env__",
-            PAGERDUTY_ESCALATION_POLICY_DEFAULT: "__env__"
+            PAGERDUTY_ESCALATION_POLICY_DEFAULT: "__env__",
+            PAGERDUTY_FROM_EMAIL: ""
         };
 
         return overrides ? Object.assign({}, defaults, overrides) : {...defaults};
