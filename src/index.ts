@@ -13,7 +13,7 @@ import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
 import loadWebhooks from "./lib/jira/webhooks";
 import {join} from "path"
-import { IModalConfig } from "./lib/slack/createRequestModal";
+import {ServiceModuleConfig} from "./lib/config";
 
 export const TEMPLATE_DIR = join(__dirname, "views");
 
@@ -100,7 +100,7 @@ export class ServiceModule extends NexusModule {
     }
 
     public loadConfig(overrides?: ModuleConfig): ModuleConfig {
-        const defaults = {
+        const defaults: ServiceModuleConfig = {
             REQUEST_COMMAND_NAME: "",
 
             // Jira Project and Workflow Details
@@ -114,19 +114,19 @@ export class ServiceModule extends NexusModule {
             REQUEST_JIRA_RESOLUTION_DONE: "",
             REQUEST_JIRA_DEFAULT_COMPONENT_ID: "",
             REQUEST_JIRA_SERVICE_LABEL: "",
-            REQUEST_JIRA_PRIORITY_PAGER_TRIGGERS: undefined as string[],
+            REQUEST_JIRA_PRIORITY_PAGER_TRIGGERS: [],
 
             // Slack Integration Options
             SLACK_PRIMARY_CHANNEL: "",
-            SLACK_CONVERSATION_RESTRICTION: "", // [invited, primary]
+            SLACK_CONVERSATION_RESTRICTION: "primary",
 
             // Slack Modal
-            SUBMIT_MODAL_CONFIG: undefined as IModalConfig,
+            SUBMIT_MODAL_CONFIG: undefined,
 
             // A list of all the priorities that will be available
             //  in the submission dialog along with properties associated
             //  with them.
-            REQUEST_JIRA_PRIORITIES: undefined as ServicePriority[],
+            REQUEST_JIRA_PRIORITIES: [],
 
             // Slack Emoji
             REQUEST_COMPLETED_SLACK_ICON: "",

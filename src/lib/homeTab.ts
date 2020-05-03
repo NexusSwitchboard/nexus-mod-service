@@ -5,11 +5,7 @@ import { SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-sla
 import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 
 import moduleInstance from "..";
-import Handlebars from "handlebars";
-import { join } from "path";
-import { TEMPLATE_DIR } from "../index";
-import { readFileSync } from "fs";
-
+import template from "../views/homeTab.view";
 import { logger } from "..";
 
 export class SlackHomeTab {
@@ -29,12 +25,6 @@ export class SlackHomeTab {
     private readonly config: ModuleConfig;
 
     /**
-     * This template is used to build the blocks for the home tab view.
-     */
-    private readonly homeTabTemplate: HandlebarsTemplateDelegate;
-
-
-    /**
      * This is the ID of the user whose home page is being updated.
      */
     private readonly userId: string;
@@ -44,10 +34,6 @@ export class SlackHomeTab {
         this.jira = moduleInstance.getJira();
         this.config = moduleInstance.getActiveModuleConfig();
         this.userId = userId;
-
-        const txt = readFileSync(join(TEMPLATE_DIR, "home_tab.json"), "utf8");
-        this.homeTabTemplate = Handlebars.compile(txt);
-
     }
 
     public async publish(): Promise<SlackPayload> {
@@ -92,11 +78,7 @@ export class SlackHomeTab {
                 }));
             })
             .then((tmplData) => {
-                const json = this.homeTabTemplate({
-                    issues: tmplData
-                });
-                const view = JSON.parse(json);
-
+                const view = template(tmplData)
                 return this.slack.apiAsBot.views.publish({
                     user_id: this.userId,
                     view

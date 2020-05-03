@@ -1,16 +1,16 @@
 import assert from "assert";
 
-import { IWebhookPayload } from "atlassian-addon-helper";
-import { JiraConnection, JiraTicket } from "@nexus-switchboard/nexus-conn-jira";
-import { SlackConnection, SlackPayload, SlackWebApiResponse } from "@nexus-switchboard/nexus-conn-slack";
-import { findProperty, getNestedVal, hasOwnProperties } from "@nexus-switchboard/nexus-extend";
-import { PagerDutyConnection } from "@nexus-switchboard/nexus-conn-pagerduty";
+import {IWebhookPayload} from "atlassian-addon-helper";
+import {JiraConnection, JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
+import {SlackConnection, SlackPayload, SlackWebApiResponse} from "@nexus-switchboard/nexus-conn-slack";
+import {findProperty, getNestedVal, hasOwnProperties} from "@nexus-switchboard/nexus-extend";
+import {PagerDutyConnection} from "@nexus-switchboard/nexus-conn-pagerduty";
 
-import { getCreateRequestModalView } from "./slack/createRequestModal";
+import RequestModal from "./slack/requestModal";
 import moduleInstance from "..";
-import { logger } from "..";
-import { SlackMessageId } from "./slackMessageId";
-import { ChannelAssignments, JiraIssueSidecarData, RequestThread, ThreadUpdateParams } from "./requestThread";
+import {logger} from "..";
+import {SlackMessageId} from "./slackMessageId";
+import {ChannelAssignments, JiraIssueSidecarData, RequestThread, ThreadUpdateParams} from "./requestThread";
 import {
     createEncodedSlackData,
     getMessageFromSlackErr,
@@ -378,7 +378,7 @@ export default class ServiceRequest {
 
         try {
 
-            await this.updateSlackThread({ message: "Working on your request..." });
+            await this.updateSlackThread({message: "Working on your request..."});
 
             // check to see if there is already a request associated with this.
             if (this.ticket) {
@@ -404,7 +404,7 @@ export default class ServiceRequest {
 
                 return true;
             } else {
-                await this.updateSlackThread({ message: "There was a problem submitting the issue to Jira." });
+                await this.updateSlackThread({message: "There was a problem submitting the issue to Jira."});
                 await this.thread.postMsgToNotificationChannel(
                     `Request submitted by <@${this.thread.reporterSlackId}> failed to create a ticket.`);
 
@@ -458,18 +458,12 @@ export default class ServiceRequest {
     protected static async showCreateModal(triggerId: string, requestParams: IRequestParams): Promise<boolean> {
 
         try {
+
+            // Note: It's okay if modal config is not set - there are defaults for this.
             const modalConfig = ServiceRequest.config.SUBMIT_MODAL_CONFIG;
-            if (!modalConfig) {
-                logger("SUBMIT_MODAL_CONFIG not specified in the module config.  Using defaults...");
-            }
 
-            const view = getCreateRequestModalView(requestParams, modalConfig, requestParams.channelId);
-            const modal = await moduleInstance.getSlack().apiAsBot.views.open({
-                trigger_id: triggerId,
-                view
-            });
-
-            return modal.ok;
+            const modal = new RequestModal(requestParams, modalConfig, requestParams.channelId);
+            return modal.show(triggerId);
 
         } catch (e) {
             logger("Exception thrown: Trying to show the create modal: " + getMessageFromSlackErr(e));
@@ -537,7 +531,7 @@ export default class ServiceRequest {
                 return ServiceRequest.slackUserIdToProfileMap[userId];
             }
 
-            const userInfo = await this.slack.apiAsBot.users.info({ user: userId }) as SlackWebApiResponse;
+            const userInfo = await this.slack.apiAsBot.users.info({user: userId}) as SlackWebApiResponse;
             if (userInfo && userInfo.ok) {
                 ServiceRequest.slackUserIdToProfileMap[userId] = userInfo.user;
                 return userInfo.user;
@@ -583,7 +577,7 @@ export default class ServiceRequest {
             // Note: In ticket creation, we remove invalid characters from title -
             //  jira will reject any summary that has a newline in it, for example
             // tslint:disable-next-line:prefer-const
-            let { title, description } = prepTitleAndDescription(request.title, request.description);
+            let {title, description} = prepTitleAndDescription(request.title, request.description);
 
             // Check to see if we need to show the name of the reporter.  We do this in the case
             //  where the reporter has a slack user but not a jira user.  In the latter case,
@@ -612,7 +606,7 @@ export default class ServiceRequest {
                     },
                     labels: request.labels || [],
                     components: request.components ? request.components.map((c) => {
-                        return { id: c };
+                        return {id: c};
                     }) : []
                 },
                 properties: [
@@ -672,22 +666,22 @@ export default class ServiceRequest {
                 ServiceRequest.config.PAGERDUTY_FROM_EMAIL,
                 {
                     incident: {
-                    type: "incident",
-                    title: request.title,
-                    service: {
-                        id: ServiceRequest.config.PAGERDUTY_SERVICE_DEFAULT,
-                        type: "service_reference"
-                    },
-                    body: {
-                        type: "incident_body",
-                        details: request.description
-                    },
-                    escalation_policy: {
-                        id: ServiceRequest.config.PAGERDUTY_ESCALATION_POLICY_DEFAULT,
-                        type: "escalation_policy_reference"
+                        type: "incident",
+                        title: request.title,
+                        service: {
+                            id: ServiceRequest.config.PAGERDUTY_SERVICE_DEFAULT,
+                            type: "service_reference"
+                        },
+                        body: {
+                            type: "incident_body",
+                            details: request.description
+                        },
+                        escalation_policy: {
+                            id: ServiceRequest.config.PAGERDUTY_ESCALATION_POLICY_DEFAULT,
+                            type: "escalation_policy_reference"
+                        }
                     }
-                }
-            });
+                });
         } catch (e) {
             logger("PagerDuty alert failed: " + e.toString());
             return undefined;
@@ -758,7 +752,7 @@ export default class ServiceRequest {
 
         const label = ServiceRequest.config.REQUEST_JIRA_SERVICE_LABEL;
         const botProps = getNestedVal(this.ticket, `properties.${label}`);
-        const updatedBotProps = Object.assign({ propertyKey: label, issueIdOrKey: this.ticket.key }, botProps, updates);
+        const updatedBotProps = Object.assign({propertyKey: label, issueIdOrKey: this.ticket.key}, botProps, updates);
 
         try {
             await this.jira.api.issueProperties.setIssueProperty(updatedBotProps);
