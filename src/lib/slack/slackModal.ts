@@ -58,6 +58,7 @@ export interface IModalField {
     id: string,
     label: string,
     hint?: string,
+    placeholder?: string,
     actionId?: string,
     required: boolean,
     position: number,
@@ -187,7 +188,7 @@ export default class SlackModal {
 
                 fieldOb.element = {
                     action_id: f.actionId,
-                    type: FieldNameToSlackFieldMap[f.type].elementType
+                    type: FieldNameToSlackFieldMap[f.type].elementType,
                 }
 
                 // If this is a choice type of input, then there will
@@ -215,6 +216,14 @@ export default class SlackModal {
 
                 if (TextFields.indexOf(f.type) > -1) {
                     fieldOb.element.multiline = (f.type === "big_text");
+                }
+
+                if (f.placeholder) {
+                    fieldOb.element.placeholder = {
+                        type: "plain_text",
+                        text: f.placeholder,
+                        emoji: true
+                    }
                 }
 
                 // Initial values can be either set at the time that the configuration
