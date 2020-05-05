@@ -429,6 +429,14 @@ export default class ServiceRequest {
                         logger("Exception thrown while posting to notification channel: " + e.toString());
                     });
 
+                // Now check to see if we need to send a pager duty alert
+                const priorityInfo = moduleInstance.lookupPriorityByJiraId(params.priority);
+                if (priorityInfo && priorityInfo.triggersPagerDuty) {
+                    this.createPagerDutyAlert(params).catch((e) => {
+                        logger("Exception thrown when trying to send pager duty alert: " + e.toString());
+                    });
+                }
+
                 return true;
             } else {
                 await this.updateSlackThread({message: "There was a problem submitting the issue to Jira."});
@@ -669,12 +677,6 @@ export default class ServiceRequest {
                 await this.setReporter(result.key, jiraUser);
             }
 
-            // Now check to see if we need to send a pager duty alert
-            const priorityInfo = moduleInstance.lookupPriorityByJiraId(request.priority);
-            if (priorityInfo && priorityInfo.triggersPagerDuty) {
-                this.createPagerDutyAlert(request);
-            }
-
             return await this.getJiraIssue(result.key);
 
         } catch (e) {
@@ -688,20 +690,28 @@ export default class ServiceRequest {
      */
     protected async createPagerDutyAlert(request: IRequestParams) {
         try {
+            const ticketLink = this.jira.keyToWebLink(ServiceRequest.config.JIRA_HOST, this.ticket.key);
+            let description = `${this.ticket.key}\n${ticketLink}\n-----\n`;
+            if (!request.description) {
+                description += "No description given";
+            } else {
+                description += request.description;
+            }
+
             // create an alert in pagerduty
             return await this.pagerDuty.api.incidents.createIncident(
                 ServiceRequest.config.PAGERDUTY_FROM_EMAIL,
                 {
                     incident: {
                         type: "incident",
-                        title: request.title,
+                        title: `${this.ticket.key} - ${request.title}`,
                         service: {
                             id: ServiceRequest.config.PAGERDUTY_SERVICE_DEFAULT,
                             type: "service_reference"
                         },
                         body: {
                             type: "incident_body",
-                            details: request.description
+                            details: description
                         },
                         escalation_policy: {
                             id: ServiceRequest.config.PAGERDUTY_ESCALATION_POLICY_DEFAULT,
