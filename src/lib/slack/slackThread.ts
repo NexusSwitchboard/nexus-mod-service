@@ -95,10 +95,56 @@ export class SlackThread {
         this.notificationChannel = (notificationChannel === this.conversationMessage.channel) ? undefined : notificationChannel;
     }
 
+    public get reporterSlackId(): string {
+        return this._reporterSlackId;
+    }
+
+    public set reporterSlackId(val: string) {
+        this._reporterSlackId = val;
+    }
+
+    public get claimerSlackId(): string {
+        return this._claimerSlackId;
+    }
+
+    public set claimerSlackId(val: string) {
+        this._claimerSlackId = val;
+    }
+
+    public get closerSlackId(): string {
+        return this._closerSlackId;
+    }
+
+    public set closerSlackId(val: string) {
+        this._closerSlackId = val;
+    }
+
+    public get channel(): string {
+        return this.conversationMessage.channel;
+    }
+
+    public get ts(): string {
+        return this.conversationMessage.ts;
+    }
+
+    public get notificationChannelId(): string {
+        return this.notificationChannel;
+    }
+
     public get ticket(): JiraTicket {
         return this._ticket;
     }
 
+    /**
+     * This associated a Jira ticket with this thread.  When this happenss a few things are done:
+     *      1. The full ticket details are load from Jira (including infrabot specific properties) - this only
+     *          happens if the details are not already loaded.
+     *      2. Using the properties from the tickets, it populates various class properties like reporter/claimer/closer
+     *          slack IDs along with the notification channel that is associated with this ticket.
+     *
+     * @param val The JiraTicket - if the `properties` property is not set then it will make a call to
+     *              get the full ticket info.
+     */
     public async setTicket(val: JiraTicket) {
         const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
         const botProps: JiraIssueSidecarData = getNestedVal(val, `properties.${label}`);
@@ -160,42 +206,6 @@ export class SlackThread {
 
     }
 
-    public get reporterSlackId(): string {
-        return this._reporterSlackId;
-    }
-
-    public set reporterSlackId(val: string) {
-        this._reporterSlackId = val;
-    }
-
-    public get claimerSlackId(): string {
-        return this._claimerSlackId;
-    }
-
-    public set claimerSlackId(val: string) {
-        this._claimerSlackId = val;
-    }
-
-    public get closerSlackId(): string {
-        return this._closerSlackId;
-    }
-
-    public set closerSlackId(val: string) {
-        this._closerSlackId = val;
-    }
-
-    public get channel(): string {
-        return this.conversationMessage.channel;
-    }
-
-    public get ts(): string {
-        return this.conversationMessage.ts;
-    }
-
-    public get notificationChannelId(): string {
-        return this.notificationChannel;
-    }
-
     /**
      * This will create a single string value that serializes slack data for easy search within a Jira ticket.
      * The format for this ID is as follows:
@@ -238,7 +248,7 @@ export class SlackThread {
 
     public async update(params: ThreadUpdateParams) {
         await this.updateTopLevelMessage(params.message, params.slackUser, params.jiraUser);
-        await this.updateActionBar();
+        // await this.updateActionBar();
     }
 
     /**
@@ -405,7 +415,7 @@ export class SlackThread {
 
     public async updateTopLevelMessage(msg?: string, slackUser?: SlackPayload, jiraUser?: JiraPayload) {
 
-        const blocks = this.buildTextBlocks(msg, false, slackUser, jiraUser);
+        const blocks = this.buildTextBlocks(msg, true, slackUser, jiraUser);
         const plainText = this.buildPlainTextString(msg, slackUser, jiraUser);
 
         // the source request was an APP post which means we can update it without extra permissions.
@@ -489,10 +499,10 @@ export class SlackThread {
             blocks.push(this.getSectionBlockFromText("> " + indentedDescription));
         }
 
-        return blocks;
+        return blocks.concat(this.buildActionBlocks());
     }
 
-    private static getIndentedDescription(description: string) {
+    public static getIndentedDescription(description: string) {
         return replaceAll(description,
             { "\n": "\n> " }).substr(0, 500);
     }
@@ -614,7 +624,7 @@ export class SlackThread {
         const state = this.getIssueState();
         const actions = this.getMessageActions(state);
 
-        const blocks: (KnownBlock | Block)[] = SlackThread.buildActionBarHeader();
+        const blocks: (KnownBlock | Block)[] = [];
 
         if (actions.length > 0) {
             blocks.push({

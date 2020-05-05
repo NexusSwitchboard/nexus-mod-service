@@ -398,9 +398,36 @@ export default class ServiceRequest {
             if (ticket) {
                 await this.setTicket(ticket);
                 this.thread.reporterSlackId = this.initiatingSlackUserId;
-                await this.updateSlackThread();
-                await this.thread.postMsgToNotificationChannel(
-                    `Request submitted by <@${this.thread.reporterSlackId}> was created successfully`);
+                await this.updateSlackThread()
+
+                const infoMsg = ":information_source: Use this thread to communicate about the request.  " +
+                    "Note that all of these comments will be recorded as comments on the associated Jira Ticket."
+
+                const description = params.description ? "> " + SlackThread.getIndentedDescription(params.description) : "";
+
+                this.thread.addReply({
+                        blocks: [{
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: description ? "*Request Description*\n" + description : "_No description given_"
+                            }
+                        }, { type: "divider" }, {
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: infoMsg
+                            }
+                        }],
+                        text: description + "\n" + infoMsg
+                    })
+                    .catch((e) => {logger("Exception thrown while posting to notification channel: " + e.toString());})
+
+                this.thread.postMsgToNotificationChannel(
+                    `Request submitted by <@${this.thread.reporterSlackId}> was created successfully`)
+                    .catch((e) => {
+                        logger("Exception thrown while posting to notification channel: " + e.toString());
+                    });
 
                 return true;
             } else {
@@ -615,7 +642,7 @@ export default class ServiceRequest {
                         value: {
                             channelId: this.thread.channel,
                             threadId: this.thread.ts,
-                            actionMsgId: this.thread.actionMessageId.ts,
+                            actionMsgId: this.thread.actionMessageId ? this.thread.actionMessageId.ts : "",
                             notificationChannelId: this.thread.notificationChannelId,
                             reporterSlackId: this.initiatingSlackUserId,
                             claimerSlackId: "",
