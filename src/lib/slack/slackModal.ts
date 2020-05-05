@@ -207,7 +207,7 @@ export default class SlackModal {
                             value: o.value,
                             description: o.description ? {
                                 type: "plain_text",
-                                text: o.description,
+                                text: o.description.substr(0,70),
                                 emoji: true
                             } : undefined
                         }
