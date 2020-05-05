@@ -9,8 +9,8 @@ import {PagerDutyConnection} from "@nexus-switchboard/nexus-conn-pagerduty";
 import RequestModal from "./slack/requestModal";
 import moduleInstance from "..";
 import {logger} from "..";
-import {SlackMessageId} from "./slackMessageId";
-import {ChannelAssignments, JiraIssueSidecarData, RequestThread, ThreadUpdateParams} from "./requestThread";
+import {SlackMessageId} from "./slack/slackMessageId";
+import {ChannelAssignments, JiraIssueSidecarData, SlackThread, ThreadUpdateParams} from "./slack/slackThread";
 import {
     createEncodedSlackData,
     getMessageFromSlackErr,
@@ -119,7 +119,7 @@ export default class ServiceRequest {
 
     // stored information about the slack thread associated with the request. You can use this
     //  to get things like the top level message, the first reply, and other useful utilities
-    private readonly thread: RequestThread;
+    private readonly thread: SlackThread;
 
     private constructor(conversationMsg: SlackMessageId, notificationChannelId?: string, slackUserId?: string, jiraWebhookPayload?: IWebhookPayload) {
         this.slack = moduleInstance.getSlack();
@@ -130,7 +130,7 @@ export default class ServiceRequest {
             throw new Error("The REQUEST_JIRA_SERVICE_LABEL config must be set.");
         }
 
-        this.thread = new RequestThread(conversationMsg, notificationChannelId, this.slack, this.jira, ServiceRequest.config);
+        this.thread = new SlackThread(conversationMsg, notificationChannelId, this.slack, this.jira, ServiceRequest.config);
         this.initiatingSlackUserId = slackUserId;
         this.initiatingJiraUser = jiraWebhookPayload ? getNestedVal(jiraWebhookPayload, "user") : undefined;
         this.jiraWebhookData = jiraWebhookPayload;
@@ -159,7 +159,7 @@ export default class ServiceRequest {
      * @param ts
      */
     public static async loadThreadFromSlackEvent(slackUserId: string, channelId: string, ts: string): Promise<ServiceRequest> {
-        const channels = RequestThread.determineConversationChannel(channelId, ServiceRequest.config.SLACK_PRIMARY_CHANNEL,
+        const channels = SlackThread.determineConversationChannel(channelId, ServiceRequest.config.SLACK_PRIMARY_CHANNEL,
             ServiceRequest.config.SLACK_CONVERSATION_RESTRICTION);
 
         const request = new ServiceRequest(new SlackMessageId(channels.conversationChannelId, ts),
@@ -235,7 +235,7 @@ export default class ServiceRequest {
     }
 
     protected static identifyChannelAssignments(startingChannelId: string): ChannelAssignments {
-        return RequestThread.determineConversationChannel(startingChannelId,
+        return SlackThread.determineConversationChannel(startingChannelId,
             ServiceRequest.config.SLACK_PRIMARY_CHANNEL,
             ServiceRequest.config.SLACK_CONVERSATION_RESTRICTION);
     }
@@ -370,7 +370,7 @@ export default class ServiceRequest {
         }
     }
 
-    public getThread(): RequestThread {
+    public getThread(): SlackThread {
         return this.thread;
     };
 

@@ -4,9 +4,9 @@ import { JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira"
 import { SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
 import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 
-import moduleInstance from "..";
-import template from "../views/homeTab.view";
-import { logger } from "..";
+import moduleInstance from "../../index";
+import template from "../../views/homeTab.view";
+import { logger } from "../../index";
 
 export class SlackHomeTab {
     /**

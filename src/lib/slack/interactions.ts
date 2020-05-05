@@ -11,8 +11,7 @@ import { findNestedProperty, findProperty, getNestedVal, ModuleConfig } from "@n
 import { logger } from "../..";
 import ServiceRequest from "../../lib/request";
 import moduleInstance from "../..";
-import { RequestThread } from "../requestThread";
-import { parseEncodedSlackData } from "../util";
+import { SlackThread } from "./slackThread";
 
 export const interactions: ISlackInteractionHandler[] = [{
     /************
@@ -170,27 +169,29 @@ export const interactions: ISlackInteractionHandler[] = [{
 
     matchingConstraints: "infra_request_modal",
     type: SlackInteractionType.viewClosed,
-    handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
+    handler: async (_conn: SlackConnection, _slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-        const modConfig = moduleInstance.getActiveModuleConfig();
-
-        const metaData = findProperty(slackParams, "private_metadata");
-        if (metaData) {
-            const slackData = parseEncodedSlackData(metaData);
-            const message = await _conn.getMessageFromChannelAndTs(
-                slackData.conversationMsg.channel, slackData.conversationMsg.ts);
-
-            if (ServiceRequest.isBotMessage(message, modConfig.SLACK_BOT_USERNAME)) {
-                _conn.apiAsBot.chat.delete({
-                    channel: slackData.conversationMsg.channel,
-                    ts: slackData.conversationMsg.ts,
-                    as_user: true
-                })
-                    .catch((e: any) => {
-                        logger(`Error when trying to delete the generated message for a slash command invoked request: ${e.toString()}`);
-                    });
-            }
-        }
+        // NOTE: This is no longer necessary because we don't show a message before the dialog
+        //  is displayed.  Leaving here for posterity in case we change the way that is handled in the future.
+        // const modConfig = moduleInstance.getActiveModuleConfig();
+        //
+        // const metaData = findProperty(slackParams, "private_metadata");
+        // if (metaData) {
+        //     const slackData = parseEncodedSlackData(metaData);
+        //     const message = await _conn.getMessageFromChannelAndTs(
+        //         slackData.conversationMsg.channel, slackData.conversationMsg.ts);
+        //
+        //     if (ServiceRequest.isBotMessage(message, modConfig.SLACK_BOT_USERNAME)) {
+        //         _conn.apiAsBot.chat.delete({
+        //             channel: slackData.conversationMsg.channel,
+        //             ts: slackData.conversationMsg.ts,
+        //             as_user: true
+        //         })
+        //             .catch((e: any) => {
+        //                 logger(`Error when trying to delete the generated message for a slash command invoked request: ${e.toString()}`);
+        //             });
+        //     }
+        // }
         return {
             code: 200
         };
@@ -199,7 +200,7 @@ export const interactions: ISlackInteractionHandler[] = [{
 
 const updateActionBar = (msg: string, conn: SlackConnection, slackParams: SlackPayload, config: ModuleConfig) => {
 
-    const blocks = RequestThread.buildActionBarHeader();
+    const blocks = SlackThread.buildActionBarHeader();
     blocks.push({
         type: "section",
         text: {

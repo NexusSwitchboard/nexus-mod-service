@@ -1,7 +1,7 @@
 import { IWebhookPayload, WebhookConfiguration } from "atlassian-addon-helper";
 import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 import ServiceRequest from "../request";
-import { JiraIssueSidecarData } from "../requestThread";
+import { JiraIssueSidecarData } from "../slack/slackThread";
 import serviceMod, { logger } from "../../index";
 
 export default (config: ModuleConfig): WebhookConfiguration[] => {

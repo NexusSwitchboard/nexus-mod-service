@@ -2,7 +2,7 @@ import {SlackConnection, ISlackAckResponse, SlackEventList, SlackPayload} from "
 import {findNestedProperty, findProperty} from "@nexus-switchboard/nexus-extend";
 import {logger} from "../..";
 import ServiceRequest from "../../lib/request";
-import { SlackHomeTab } from "../homeTab";
+import { SlackHomeTab } from "./homeTab";
 
 /**
  * General handler for thread posts made in threads that are part of an open request.

@@ -1,11 +1,11 @@
 import { SlackMessageId } from "./slackMessageId";
-import { logger } from "..";
+import { logger } from "../../index";
 import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
-import { RequestState } from "./request";
+import { RequestState } from "../request";
 import { JiraTicket, JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
 import { SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
-import { createEncodedSlackData, replaceAll } from "./util";
-import moduleInstance from "../index";
+import { createEncodedSlackData, replaceAll } from "../util";
+import moduleInstance from "../../index";
 import { ChatPostMessageArguments, ChatUpdateArguments } from "@slack/web-api";
 import { KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import { SlackHomeTab } from "./homeTab";
@@ -66,7 +66,7 @@ export type ChannelAssignments = {
     conversationChannelId: string
 }
 
-export class RequestThread {
+export class SlackThread {
 
     public conversationMessage: SlackMessageId;
     public actionMessageId: SlackMessageId;
@@ -484,7 +484,7 @@ export class RequestThread {
             // it will appear with gray line to the left.  Also restrict the length
             //  of the output to < 3000 characters which is the limit for
             //  text blocks in slack.
-            const indentedDescription = this.getIndentedDescription(description);
+            const indentedDescription = SlackThread.getIndentedDescription(description);
 
             blocks.push(this.getSectionBlockFromText("> " + indentedDescription));
         }
@@ -492,14 +492,14 @@ export class RequestThread {
         return blocks;
     }
 
-    private getIndentedDescription(description: string) {
+    private static getIndentedDescription(description: string) {
         return replaceAll(description,
             { "\n": "\n> " }).substr(0, 500);
     }
 
     private static getBestUserString(slackUser: SlackPayload, jiraUser: JiraPayload) {
         // Prefer to use the Slack user for rendering in slack.
-        let userStr: string = "";
+        let userStr: string;
         if (slackUser) {
             userStr = `<@${slackUser.id}>`;
         } else if (jiraUser) {
@@ -614,7 +614,7 @@ export class RequestThread {
         const state = this.getIssueState();
         const actions = this.getMessageActions(state);
 
-        const blocks: (KnownBlock | Block)[] = RequestThread.buildActionBarHeader();
+        const blocks: (KnownBlock | Block)[] = SlackThread.buildActionBarHeader();
 
         if (actions.length > 0) {
             blocks.push({
@@ -709,7 +709,7 @@ export class RequestThread {
         // Add the description at the end so that only the description is hidden
         //  by Slack when the message is too long.
         if (description) {
-            lines.push(this.getIndentedDescription(description));
+            lines.push(SlackThread.getIndentedDescription(description));
         }
 
         return lines.join("\n");
@@ -773,7 +773,7 @@ export class RequestThread {
     private getParticipantsAsFields(slackUser: SlackPayload, jiraUser: JiraPayload): (MrkdwnElement|PlainTextElement)[] {
 
         const state = this.getIssueState();
-        const userStr = RequestThread.getBestUserString(slackUser, jiraUser);
+        const userStr = SlackThread.getBestUserString(slackUser, jiraUser);
 
         const fields: (MrkdwnElement|PlainTextElement)[] = [
             {

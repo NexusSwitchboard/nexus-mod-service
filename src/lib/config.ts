@@ -1,24 +1,14 @@
 import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
 import {ServicePriority} from "../index";
+import {IModalConfig} from "./slack/slackModal";
 
-export interface IModalText {
-    label?: string,
-    hint?: string
-}
 
-export interface IModalConfig {
-    title?: string,
-    description?: string,
-    fields?: {
-        summary?: IModalText,
-        description?: IModalText,
-        type?: IModalText,
-        priority?: IModalText,
-        submit?: IModalText,
-        cancel?: IModalText
-    }
-}
 
+/**
+ * Holds ALL the configuration variables that are specific to the service module - whether they
+ * are secrets or not.  Note that the ones that are intended to be secrets have a type that only
+ * allows the value "__env__".  This is to help ensure that the value is not being set in code.
+ */
 export interface ServiceModuleConfig extends ModuleConfig {
 
     REQUEST_COMMAND_NAME: string;

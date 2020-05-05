@@ -6,7 +6,7 @@
  */
 import { SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
 import { getNestedVal } from "@nexus-switchboard/nexus-extend";
-import { SlackMessageId } from "./slackMessageId";
+import { SlackMessageId } from "./slack/slackMessageId";
 import { logger } from "../index";
 
 export function replaceAll(str: string, mapObj: Record<string, string>) {
