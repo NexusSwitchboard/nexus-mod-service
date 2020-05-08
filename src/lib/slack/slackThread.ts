@@ -555,7 +555,7 @@ export class SlackThread {
         if (this.reporterSlackId) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
-            const text = `:tada: Hey! The request you submitted (<${jiraLink}|${this.ticket.key}>) has been marked complete.  <${permalink}|Click here to visit the thread in Slack>`;
+            const text = `:tada: Another one bites the dust!\nThe request you submitted (<${jiraLink}|${this.ticket.key}>) has been marked complete.  <${permalink}|Click here to visit the thread in Slack>`;
             await this.notifyUserDirectly(this.reporterSlackId, text);
         }
     }
@@ -568,7 +568,24 @@ export class SlackThread {
         if (this.reporterSlackId) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
-            const text = `:rocket: Guess what? The request you submitted (<${jiraLink}|${this.ticket.key}>) has been claimed!  <${permalink}|Click here to visit the thread in Slack>`;
+            const text = `:rocket: Guess what?\nThe request you submitted (<${jiraLink}|${this.ticket.key}>) has been claimed!  <${permalink}|Click here to visit the thread in Slack>`;
+            await this.notifyUserDirectly(this.reporterSlackId, text);
+        }
+    }
+
+    /**
+     * Sends a message to the reporter with information about the ticket
+     * that was just completed and a link to the conversation where it all went down.
+     */
+    public async notifyReporterOfCreatedTicket() {
+        if (this.reporterSlackId) {
+            const permalink = await this.getPermalink(this.channel, this.ts);
+            const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+            const text = `:star: Nicely done!\nTicket <${jiraLink}|${this.ticket.key}> has been created and `+
+                         `a <${permalink}|thread has been started>. Next steps are for someone on the team to claim `+
+                         `your request and start work on it.  Use the slack thread referenced here to chat with your `+
+                         `friendly helper.`;
+
             await this.notifyUserDirectly(this.reporterSlackId, text);
         }
     }
@@ -581,7 +598,7 @@ export class SlackThread {
         if (this.reporterSlackId) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
-            const text = `:face_with_hand_over_mouth: The request you submitted (<${jiraLink}|${this.ticket.key}>) has been cancelled.  If that's a surprise to you, <${permalink}|check out the thread in the main service channel>`;
+            const text = `:face_with_hand_over_mouth: Hmmm...\nThe request you submitted (<${jiraLink}|${this.ticket.key}>) has been cancelled.  If that's a surprise to you, <${permalink}|check out the thread in the main service channel>`;
             await this.notifyUserDirectly(this.reporterSlackId, text);
         }
     }

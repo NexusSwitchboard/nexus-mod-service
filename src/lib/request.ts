@@ -191,7 +191,7 @@ export default class ServiceRequest {
             //  in slack and all further conversation will happen here.
             const message = await slack.apiAsBot.chat.postMessage({
                     channel: channels.conversationChannelId,
-                    text: `${ServiceRequest.config.REQUEST_WORKING_SLACK_ICON} Creating a ticket for <@${slackUserId}> `
+                    text: `:gear: Creating a ticket for <@${slackUserId}> `
                 }
             );
 
@@ -442,6 +442,8 @@ export default class ServiceRequest {
                     .catch((e) => {
                         logger("Exception thrown while posting to notification channel: " + e.toString());
                     });
+
+                this.thread.notifyReporterOfCreatedTicket()
 
                 // Now check to see if we need to send a pager duty alert
                 const priorityInfo = moduleInstance.lookupPriorityByJiraId(params.priority);

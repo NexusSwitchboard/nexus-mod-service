@@ -10,6 +10,7 @@ import assert from "assert";
 import { findNestedProperty, findProperty, getNestedVal } from "@nexus-switchboard/nexus-extend";
 import { logger } from "../..";
 import ServiceRequest from "../../lib/request";
+import moduleInstance from "../.."
 
 export const interactions: ISlackInteractionHandler[] = [{
     /************
@@ -83,7 +84,7 @@ export const interactions: ISlackInteractionHandler[] = [{
      * MESSAGE ACTION HANDLER: Create Request
      * This is the handler for when the user right clicks on a message and chooses the submit request action
      */
-    matchingConstraints: { callbackId: "submit_infra_request" },
+    matchingConstraints: { callbackId: "submit_request" },
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         const slackUserId = findNestedProperty(slackParams, "user", "id");
@@ -99,21 +100,26 @@ export const interactions: ISlackInteractionHandler[] = [{
             code: 200
         };
     }
-},{
+}, {
     /************
-     * MESSAGE ACTION HANDLER: Create Request
+     * GLOBAL SHORTCUT HANDLER: Create Request
      * This is the handler for when uses a global shortcut (meaning it's not tied to a message or a channel)
      */
-    matchingConstraints: { callbackId: "global_start_infra_request" },
-    type: SlackInteractionType.action,
+    matchingConstraints: { callbackId: "submit_request" },
+    type: SlackInteractionType.shortcut,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        const slackUserId = findNestedProperty(slackParams, "user", "id");
-        const channel = findNestedProperty(slackParams, "channel", "id");
+        const modConfig = moduleInstance.getActiveModuleConfig();
+        const channel = modConfig.SLACK_PRIMARY_CHANNEL;
 
-        ServiceRequest.startNewRequest(slackUserId, channel, "", slackParams.trigger_id)
-            .catch((e) => {
-                logger("Failed to start detail collection after global shortcut initiated: " + e.toString());
-            });
+        if (channel) {
+            const slackUserId = findNestedProperty(slackParams, "user", "id");
+            ServiceRequest.startNewRequest(slackUserId, channel, "", slackParams.trigger_id)
+                .catch((e) => {
+                    logger("Failed to start detail collection after global shortcut initiated: " + e.toString());
+                });
+        } else {
+            logger("Failed to start global shortcut because a primary channel ID has not been set in config");
+        }
 
         return {
             code: 200
