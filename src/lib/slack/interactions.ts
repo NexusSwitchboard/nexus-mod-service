@@ -7,11 +7,9 @@ import {
 } from "@nexus-switchboard/nexus-conn-slack";
 
 import assert from "assert";
-import { findNestedProperty, findProperty, getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
+import { findNestedProperty, findProperty, getNestedVal } from "@nexus-switchboard/nexus-extend";
 import { logger } from "../..";
 import ServiceRequest from "../../lib/request";
-import moduleInstance from "../..";
-import { SlackThread } from "./slackThread";
 
 export const interactions: ISlackInteractionHandler[] = [{
     /************
@@ -22,10 +20,8 @@ export const interactions: ISlackInteractionHandler[] = [{
 
     matchingConstraints: { blockId: "infra_request_actions" },
     type: SlackInteractionType.action,
-    handler: async (conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
+    handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
         assert(slackParams.actions && slackParams.actions.length > 0, "Received slack action event but actions array appears to be empty");
-
-        const config = moduleInstance.getActiveModuleConfig();
 
         if (slackParams.actions[0].value === "view_request") {
             return {
@@ -44,7 +40,7 @@ export const interactions: ISlackInteractionHandler[] = [{
                         `Error: ${err.toString()}`);
                 });
 
-            updateActionBar("Claiming request...", conn, slackParams, config);
+            ServiceRequest.postTransitionMessage(slackParams, "Claiming request...");
         }
 
         ////////// CANCEL
@@ -61,7 +57,7 @@ export const interactions: ISlackInteractionHandler[] = [{
                         `Error: ${err.toString()}`);
                 });
 
-            updateActionBar("Cancelling request...", conn, slackParams, config);
+            ServiceRequest.postTransitionMessage(slackParams, "Cancelling request...");
         }
 
         ////////// COMPLETE
@@ -75,7 +71,7 @@ export const interactions: ISlackInteractionHandler[] = [{
                         `Error: ${err.toString()}`);
                 });
 
-            updateActionBar("Completing request...", conn, slackParams, config);
+            ServiceRequest.postTransitionMessage(slackParams, "Completing request...");
         }
 
         return {
@@ -197,24 +193,3 @@ export const interactions: ISlackInteractionHandler[] = [{
         };
     }
 }];
-
-const updateActionBar = (msg: string, conn: SlackConnection, slackParams: SlackPayload, config: ModuleConfig) => {
-
-    const blocks = SlackThread.buildActionBarHeader();
-    blocks.push({
-        type: "section",
-        text: {
-            type: "mrkdwn",
-            text: `${config.REQUEST_WORKING_SLACK_ICON} ${msg}`
-        }
-    });
-
-    // Message responses can be sent for up to 30 minutes after the action took place.
-    conn.sendMessageResponse(slackParams, {
-        replace_original: "true",
-        blocks
-    }).catch((e) => {
-        logger("Exception thrown: Unable to send message response after action: "
-            + e.toString());
-    });
-};

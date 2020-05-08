@@ -1,6 +1,8 @@
 import {prepTitleAndDescription} from '../util';
+import _ from "lodash"
 import moduleInstance from "../..";
 import SlackModal, {IModalConfig, IModalField, IModalFieldOption} from "./slackModal";
+import {KnownBlock} from "@slack/types";
 
 /**
  * Pulls in the prepped priorities - note that we can't wait until now to load priorities from Jira
@@ -70,28 +72,26 @@ export const DefaultRequestModalConfig: IModalConfig = {
             placeholder: "Choose a category/component that makes the most sense",
             required: true,
             position: 3,
-            type: "dropdown",
-            ticketFieldId: "components",
-            options: loadComponents
+            type: "components",
+            ticketFieldId: "components"
         },
         {
             id: "priority_input",
             actionId: "priority",
             label: "Priority",
-            hint: "Some priorities will trigger a PagerDuty incident",
-            placeholder: "Only choose 'High' if it is a true emergency",
+            hint: "Please be as objective as possible when choosing a priority",
+            placeholder: "Choose a priority",
             required: true,
             position: 3,
-            type: "dropdown",
-            ticketFieldId: "priority",
-            options: loadPriorities
+            type: "priorities",
+            ticketFieldId: "priority"
         },
         {
             id: "description_input",
             actionId: "description",
             label: "Additional Information",
             hint: "This populates the 'description' field in the created Jira Ticket (optional)",
-            placeholder: "Be as detailed as possible here",
+            placeholder: "Enter a detailed description",
             required: false,
             position: 4,
             type: "big_text",
@@ -112,5 +112,23 @@ export default class RequestModal extends SlackModal {
             "title_input": title,
             "description_input": description
         }
+    }
+
+    protected getSlackBlockFromFieldConfig(f: IModalField): KnownBlock {
+
+        if (f.type === "priorities") {
+            const uf = _.cloneDeep(f);
+            uf.type = "dropdown";
+            uf.options = loadPriorities;
+            return super.getSlackBlockFromFieldConfig(uf);
+        } else if (f.type === "components") {
+            const uf = _.cloneDeep(f);
+            uf.type = "dropdown";
+            uf.options = loadComponents;
+            return super.getSlackBlockFromFieldConfig(uf);
+        } else {
+            return super.getSlackBlockFromFieldConfig(f);
+        }
+
     }
 };

@@ -3,35 +3,28 @@ import moduleInstance from "../../index";
 import {View} from "@slack/web-api";
 import _ from "lodash";
 import {DefaultRequestModalConfig} from "./requestModal";
+import {InputBlock, KnownBlock, Option, PlainTextElement} from "@slack/types";
 
-export type FieldType = "text" | "big_text" | "dropdown" | "divider";
+export type FieldType = string;
 export const SelectTypeFields: FieldType[] = ["dropdown"];
-export const LabeledFields: FieldType[] = ["text","big_text","dropdown"];
 export const TextFields: FieldType[] = ["text","big_text"];
 export const InputFields: FieldType[] = ["text","big_text","dropdown"];
 
-const FieldNameToSlackFieldMap: Record<FieldType, any> = {
-    text: {
-        type: "input",
-        elementType: "plain_text_input",
+const BaseInputBlock: InputBlock = {
+    type: 'input',
+    label: {
+        type: "plain_text",
+        text: "",
+        emoji: true
     },
-    big_text: {
-        type: "input",
-        elementType: "plain_text_input",
+    hint: {
+        type: "plain_text",
+        text: "",
+        emoji: true
     },
-    dropdown: {
-        type: "input",
-        elementType: "static_select",
-    },
-    divider: {
-        type: "divider",
-    }
-
-    // NOTE: To add more types, do this:
-    //  1. Add the new type name to the FieldType type.
-    //  2. Add a new key to the FieldNameToSlackFieldMap constant that has a value
-    //      which contains the UNIQUE/VARIABLE parts of that block's slack representation.
-};
+    optional: false,
+    element: undefined
+}
 
 export interface IModalText {
     label?: string,
@@ -132,6 +125,122 @@ export default class SlackModal {
     }
 
     /**
+     * Initial values are either given as part of the configuration or could be passed in through the
+     * request parameters.  During initialization, a derived class may update the initialValues property of
+     * the class with "dynamic" initial values that should be inserted into the fields with the right ID.
+     * @param f
+     */
+    protected getFieldInitialValue(f: IModalField): string {
+        if (f.initialValue) {
+            // In this case, the initial values were set as part of
+            //  the configuration object - meaning it's a static value
+            //  that is not affected by how and when the request was made.
+            return f.initialValue;
+        } else if (this.initialValues.hasOwnProperty(f.id)) {
+
+            // In this case, a dynamic value was prepared during the creation
+            //  of the modal instance.  It is keyed on the id of the field that
+            //  should have the initial value.  The value of that key is the initial
+            //  value of the field.
+            return this.initialValues[f.id];
+        }
+
+        return undefined;
+    }
+
+    /**
+     * A convenience method to help with generating a simple plain text object for most
+     * slack text fields.
+     * @param text
+     * @param emoji
+     */
+    protected static getPlainTextOb(text: string, emoji: boolean = true): PlainTextElement {
+        return {
+            type: "plain_text",
+            text: text,
+            emoji: emoji
+        }
+    }
+
+    /**
+     * This will convert an array of configured field options into an Slack option object.
+     * @param opts
+     */
+    protected static getSlackOptionsFromConfiguredOptions(opts: IModalFieldOption[]): Option[] {
+        return opts.map((o: IModalFieldOption) => {
+            return {
+                text: {
+                    type: "plain_text",
+                    text: o.name,
+                    emoji: true
+                },
+                value: o.value,
+                description: o.description ? {
+                    type: "plain_text",
+                    text: o.description.substr(0, 70),
+                    emoji: true
+                } : undefined
+            }
+        });
+    }
+
+    /**
+     * This will convert the IModalField into a slack block configured correctly.  This can be (and should be)
+     * overridden for custom field configuration that require more customization that what is provided here.
+     * @param f
+     */
+    protected getSlackBlockFromFieldConfig(f: IModalField): KnownBlock {
+
+        const fieldType = f.type;
+        let finalBlock: KnownBlock;
+
+        if (InputFields.includes(fieldType)) {
+            finalBlock = _.cloneDeep(BaseInputBlock);
+            finalBlock.block_id = f.id;
+            finalBlock.label = f.label ? SlackModal.getPlainTextOb(f.label) : undefined;
+            finalBlock.hint = f.hint ? SlackModal.getPlainTextOb(f.hint) : undefined;
+            finalBlock.optional = !(f.required);
+
+            if (TextFields.includes(fieldType)) {
+                finalBlock.element = {
+                    type: 'plain_text_input',
+                    action_id: f.actionId,
+                    placeholder: f.placeholder ? SlackModal.getPlainTextOb(f.placeholder) : undefined,
+                    initial_value: this.getFieldInitialValue(f),
+                    multiline: (fieldType == "big_text"),
+                    min_length: undefined,
+                    max_length: undefined
+                }
+            } else if (fieldType == "dropdown") {
+                const sourceOptions = _.isFunction(f.options) ? f.options(this.modalConfig, f) : f.options;
+                const options = sourceOptions ? SlackModal.getSlackOptionsFromConfiguredOptions(sourceOptions) : undefined;
+                const initialValue = this.getFieldInitialValue(f);
+                const initialOption = initialValue ?
+                    options ?
+                        options.find((o)=>o.value === initialValue)
+                        : undefined
+                    : undefined;
+
+                finalBlock.element = {
+                    action_id: f.actionId,
+                    type: 'static_select',
+                    placeholder: f.placeholder ? SlackModal.getPlainTextOb(f.placeholder) : undefined,
+                    initial_option: initialOption,
+                    options: options
+                }
+            }
+        } else if (fieldType == "divider") {
+            finalBlock = {
+                type: "divider"
+            }
+        } else {
+            throw new Error(`Slack Modal Error: A field type of ${fieldType} could not be found`);
+        }
+
+        return finalBlock;
+    }
+
+    /**
      * Generates the View JSON required to be passed to the view open call.
      */
     protected generate(): View {
@@ -159,96 +268,7 @@ export default class SlackModal {
 
         // Now add the blocks based on the requested fields.
         view.blocks = this.modalConfig.configurableFields.map((f: IModalField) => {
-            const fieldOb: any = FieldNameToSlackFieldMap ?
-                { type: FieldNameToSlackFieldMap[f.type].type} : undefined;
-
-            if (!fieldOb) {
-                throw new Error(`Unable to add a field of type ${f.type} - unrecognized`);
-            }
-
-            fieldOb.block_id = f.id;
-
-            if (f.label && LabeledFields.indexOf(f.type) > -1) {
-                fieldOb.label = {
-                    type: "plain_text",
-                    text: f.label,
-                    emoji: true
-                }
-            }
-
-            if (InputFields.indexOf(f.type) > -1) {
-                fieldOb.optional = !(f.required);
-
-                if (f.hint) {
-                    fieldOb.hint = {
-                        type: "plain_text",
-                        text: f.hint
-                    }
-                }
-
-                fieldOb.element = {
-                    action_id: f.actionId,
-                    type: FieldNameToSlackFieldMap[f.type].elementType,
-                }
-
-                // If this is a choice type of input, then there will
-                //  be an options field that needs to be filled out.  The options
-                //  can be either a static list of option objects or a function that
-                //  generates the list on the fly.
-                if (SelectTypeFields.indexOf(f.type) > -1) {
-                    const options = _.isFunction(f.options) ? f.options(this.modalConfig, f) : f.options;
-                    fieldOb.element.options = options.map((o) => {
-                        return {
-                            text: {
-                                type: "plain_text",
-                                text: o.name,
-                                emoji: true
-                            },
-                            value: o.value,
-                            description: o.description ? {
-                                type: "plain_text",
-                                text: o.description.substr(0,70),
-                                emoji: true
-                            } : undefined
-                        }
-                    })
-                }
-
-                if (TextFields.indexOf(f.type) > -1) {
-                    fieldOb.element.multiline = (f.type === "big_text");
-                }
-
-                if (f.placeholder) {
-                    fieldOb.element.placeholder = {
-                        type: "plain_text",
-                        text: f.placeholder,
-                        emoji: true
-                    }
-                }
-
-                // Initial values can be either set at the time that the configuration
-                //  object is created - think of these as "static" values.  Or they
-                //  can be set at the time the modal is about to be created.  You would
-                //  do the latter in cases where the circumstances that led to the creation
-                //  of the modal included some input that can be prepopulated in the dialog
-                //  to save the user some time.
-
-                if (f.initialValue) {
-                    // In this case, the initial values were set as part of
-                    //  the configuration object - meaning it's a static value
-                    //  that is not affected by how and when the request was made.
-                    fieldOb.element.initial_value = f.initialValue;
-                } else if (this.initialValues.hasOwnProperty(f.id)) {
-
-                    // In this case, a dynamic value was prepared during the creation
-                    //  of the modal instance.  It is keyed on the id of the field that
-                    //  should have the initial value.  The value of that key is the initial
-                    //  value of the field.
-                    fieldOb.element.initial_value = this.initialValues[f.id];
-                }
-            }
-
-            return fieldOb;
+            return this.getSlackBlockFromFieldConfig(f);
         });
 
         // Now add the modal description area and the divider following it (to the beginning

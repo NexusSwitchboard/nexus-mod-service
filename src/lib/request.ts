@@ -234,6 +234,23 @@ export default class ServiceRequest {
         return request;
     }
 
+    public static postTransitionMessage(interactionPayload: SlackPayload, msg: string) {
+        moduleInstance.getSlack().sendMessageResponse(interactionPayload, {
+            replace_original: true,
+            blocks: [
+                {
+                    type: "context",
+                    elements: [
+                        {
+                            type: "mrkdwn",
+                            text: msg
+                        }
+                    ]
+                }
+            ]
+        });
+    }
+
     protected static identifyChannelAssignments(startingChannelId: string): ChannelAssignments {
         return SlackThread.determineConversationChannel(startingChannelId,
             ServiceRequest.config.SLACK_PRIMARY_CHANNEL,
@@ -294,10 +311,8 @@ export default class ServiceRequest {
             } else {
                 const ticket = await this.claimJiraTicket();
                 if (!ticket) {
-                    await this.thread.addErrorReply("Failed to claim this ticket.  This could be for one of these reasons:\n " +
-                        "1. The user in slack who is trying to claim the ticket does not have a Jira user (with the same email) \n" +
-                        "2. The transition configuration for going from 'Open' to 'In Progress' is not correct in your .nexus file.\n" +
-                        "3. The 'In Prgress' status configured does not match the status in the project");
+                    await this.updateSlackThread();
+                    await this.thread.addErrorReply("Failed to claim the ticket.  See log for more details.");
 
                 } else {
                     await this.setTicket(ticket);
@@ -311,6 +326,7 @@ export default class ServiceRequest {
             // Now assign the user and set the ticket "in progress"
         } catch (e) {
             logger("Claim failed with " + e.toString());
+            await this.updateSlackThread();
             await this.thread.addErrorReply("The claim failed due to the following problem: " + e.message);
         }
     }
@@ -329,15 +345,14 @@ export default class ServiceRequest {
 
                 await this.thread.notifyReporterOfCancelledTicket();
             } else {
-                await this.thread.addErrorReply("Failed to cancel this ticket.  This could be for one of these reasons:\n " +
-                    "1. The user in slack who is trying to cancel the ticket does not have a Jira user (with the same email)\n" +
-                    "2. The transition configuration for going from the current state to 'Done/Complete' is not correct in your .nexus file.\n" +
-                    "3. The statuses configured in .nexus do not match the status in the project");
+                await this.updateSlackThread();
+                await this.thread.addErrorReply("There was a problem cancelling this ticket.  Check logs for more details.");
 
             }
 
         } catch (e) {
             logger("Cancel failed with " + e.toString());
+            await this.updateSlackThread();
             await this.thread.addErrorReply("There was a problem closing the request: " + e.toString());
         }
     }
@@ -358,14 +373,13 @@ export default class ServiceRequest {
                 await this.thread.notifyReporterOfCompletion()
 
             } else {
-                await this.thread.addErrorReply("Failed to complete this ticket.  This could be for one of these reasons:\n " +
-                    "1. The user in slack who is trying to complete the ticket does not have a Jira user (with the same email)\n" +
-                    "2. The transition configuration for going from the current state to 'Done/Complete' is not correct in your .nexus file." +
-                    "3. The statuses configured in .nexus do not match the status in the project");
+                await this.updateSlackThread();
+                await this.thread.addErrorReply("Failed to complete this ticket.  See log for more details.");
 
             }
         } catch (e) {
             logger("Complete failed with " + e.toString());
+            await this.updateSlackThread();
             await this.thread.addErrorReply("There was a problem completing the request: " + e.toString());
         }
     }
@@ -447,6 +461,7 @@ export default class ServiceRequest {
             }
         } catch (e) {
             logger("Exception thrown: During ticket creation:  " + e.toString());
+            await this.updateSlackThread({message: "There was an error during ticket creation:" + e.toString()});
             return false;
         }
     }
@@ -517,7 +532,7 @@ export default class ServiceRequest {
                 });
 
                 if (ticket) {
-                    this.setTicket(ticket);
+                    await this.setTicket(ticket);
                 }
 
             } else if (this.isJiraTriggered) {
@@ -531,7 +546,7 @@ export default class ServiceRequest {
 
                     issue.properties = props;
                 }
-                this.setTicket(issue);
+                await this.setTicket(issue);
             }
         } catch (e) {
             logger(`Exception thrown: Unable to find to reset the request object:` + e.toString());

@@ -6,7 +6,7 @@ import { JiraTicket, JiraConnection, JiraPayload } from "@nexus-switchboard/nexu
 import { SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
 import { createEncodedSlackData, replaceAll } from "../util";
 import moduleInstance from "../../index";
-import { ChatPostMessageArguments, ChatUpdateArguments } from "@slack/web-api";
+import { ChatPostMessageArguments, ChatPostEphemeralArguments, ChatUpdateArguments } from "@slack/web-api";
 import { KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import { SlackHomeTab } from "./homeTab";
 
@@ -363,8 +363,8 @@ export class SlackThread {
      * @param msg
      * @param messageToUpdateTs If given, it will try and replace the given message
      */
-    public async addErrorReply(msg: string, messageToUpdateTs?: string) {
-        await this.addReply({ text: `:x: ${msg}` }, messageToUpdateTs);
+    public async addErrorReply(msg: string, messageToUpdateTs?: string, ephemeralUserId?: string) {
+        await this.addReply({ text: `:x: ${msg}` }, messageToUpdateTs, ephemeralUserId);
     }
 
     /**
@@ -374,7 +374,7 @@ export class SlackThread {
      * @param messageParams
      * @param ts
      */
-    public async addReply(messageParams: SlackPayload, ts?: string): Promise<string> {
+    public async addReply(messageParams: SlackPayload, ts?: string, ephemeralUser?: string): Promise<string> {
         if (ts) {
             const options: ChatUpdateArguments = Object.assign(
                 {}, {
@@ -394,14 +394,31 @@ export class SlackThread {
             }
 
         } else {
-            const options: ChatPostMessageArguments = Object.assign({}, {
-                text: "",
-                channel: this.channel,
-                thread_ts: this.ts
-            }, messageParams);
+
+            let options: ChatPostEphemeralArguments | ChatPostMessageArguments;
+            if (ephemeralUser) {
+                options = Object.assign({}, {
+                    text: "",
+                    channel: this.channel,
+                    thread_ts: this.ts,
+                    user: ephemeralUser
+                }, messageParams)
+            } else {
+                options = Object.assign({}, {
+                    text: "",
+                    channel: this.channel,
+                    thread_ts: this.ts
+                }, messageParams) as ChatPostMessageArguments
+            }
 
             try {
-                const result = await this.slack.apiAsBot.chat.postMessage(options);
+                let result;
+                if (ephemeralUser) {
+                    result = await this.slack.apiAsBot.chat.postEphemeral(options as ChatPostEphemeralArguments);
+                } else {
+                    result = await this.slack.apiAsBot.chat.postMessage(options as ChatPostMessageArguments);
+                }
+
                 if (result.ok) {
                     return result.ts as string;
                 }
@@ -643,14 +660,6 @@ export class SlackThread {
                         url: a.url ? a.url : undefined
                     };
                 })
-            });
-        } else {
-            blocks.push({
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `${this.config.REQUEST_WORKING_SLACK_ICON} Waiting...`
-                }
             });
         }
         return blocks;
