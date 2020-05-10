@@ -3,6 +3,10 @@
 Released on: TBD
 * *Fixed*: If ticket creation fails when triggered by a Global Shortcut, send an error message in a DM to the reporter so they aren't left with any information about what went wrong.
 
+*0.5.11*
+--------------------
+* *Hotfix*: Neglected to update one of the packages needed for 0.5.10
+
 *0.5.10*
 --------------------
 * *Added*: Does a self-diagnostic on the configuration of the module to ensure that everything will operate properly during runtime.  There are now a lot of configuration options that could be incorrectly set and trying to nail that down manually will be difficult.  It can also serve as self-documentation for tracking these detais.
