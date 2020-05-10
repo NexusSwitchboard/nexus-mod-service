@@ -1,21 +1,19 @@
 import createDebug from "debug";
-import { Application } from 'express';
-import { JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
+import {Application} from 'express';
+import {JiraConnection, JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
 import {PagerDutyConnection} from "@nexus-switchboard/nexus-conn-pagerduty";
 import {
     ConnectionRequest,
     NexusModule,
-    ModuleConfig, INexusActiveModule
+    ModuleConfig, INexusActiveModule,
+    checkConfig
 } from "@nexus-switchboard/nexus-extend";
 import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
 import loadWebhooks from "./lib/jira/webhooks";
-import {join} from "path"
-import {ServiceModuleConfig} from "./lib/config";
-
-export const TEMPLATE_DIR = join(__dirname, "views");
+import configRules from "./lib/config";
 
 export interface ServiceComponent {
     id: string,
@@ -33,6 +31,7 @@ export interface ServicePriority {
 }
 
 export const logger = createDebug("nexus:service");
+export const confLog = createDebug("nexus:service:config-check");
 
 export class ServiceModule extends NexusModule {
     public name = "service";
@@ -41,13 +40,19 @@ export class ServiceModule extends NexusModule {
     public cachedPreparedPriorities: ServicePriority[];
 
     public async initialize(active: INexusActiveModule) {
-        super.initialize(active);
+
+        await super.initialize(active);
+
+        const errorCount = checkConfig(active.config, configRules, confLog);
+        if (errorCount > 0) {
+            throw new Error("Received one or more fatal errors in configuration.  See log for more details.");
+        }
 
         await this.loadJiraProjectComponents();
         await this.loadJiraPriorities();
     }
 
-    public get jiraComponents () {
+    public get jiraComponents() {
         return this.cachedComponents;
     }
 
@@ -56,7 +61,7 @@ export class ServiceModule extends NexusModule {
      * these in a separate cache for posterity but most of the time we will
      * be referencing the preparedPriorities.
      */
-    public get jiraPriorities () {
+    public get jiraPriorities() {
         return this.cachedPriorities;
     }
 
@@ -72,7 +77,7 @@ export class ServiceModule extends NexusModule {
         }
 
         const priorities = this.getActiveModuleConfig().REQUEST_JIRA_PRIORITIES || [];
-        this.cachedPreparedPriorities = priorities.map((p: ServicePriority)=> {
+        this.cachedPreparedPriorities = priorities.map((p: ServicePriority) => {
             const sp = p.name.toLowerCase();
             if (sp in this.jiraPriorities) {
                 return {...p, jiraId: this.jiraPriorities[sp].id}
@@ -93,79 +98,14 @@ export class ServiceModule extends NexusModule {
      * the one given.
      * @param jiraPriorityId
      */
-    public lookupPriorityByJiraId(jiraPriorityId:string): ServicePriority {
+    public lookupPriorityByJiraId(jiraPriorityId: string): ServicePriority {
         return this.preparedPriorities.find((p) => {
             return p.jiraId === jiraPriorityId;
         });
     }
 
-    public loadConfig(overrides?: ModuleConfig): ModuleConfig {
-        const defaults: ServiceModuleConfig = {
-            REQUEST_COMMAND_NAME: "",
-
-            // Jira Project and Workflow Details
-            REQUEST_JIRA_PROJECT: "",
-            REQUEST_JIRA_ISSUE_TYPE_ID: "",
-            REQUEST_JIRA_EPIC: "",
-            REQUEST_JIRA_START_TRANSITION_ID: 0,
-            REQUEST_JIRA_COMPLETE_TRANSITION_ID: 0,
-            REQUEST_JIRA_EPIC_LINK_FIELD: "",
-            REQUEST_JIRA_RESOLUTION_DISMISS: "",
-            REQUEST_JIRA_RESOLUTION_DONE: "",
-            REQUEST_JIRA_DEFAULT_COMPONENT_ID: "",
-            REQUEST_JIRA_SERVICE_LABEL: "",
-            REQUEST_JIRA_PRIORITY_PAGER_TRIGGERS: [],
-
-            // Slack Integration Options
-            SLACK_PRIMARY_CHANNEL: "",
-            SLACK_CONVERSATION_RESTRICTION: "primary",
-
-            // Slack Modal
-            SUBMIT_MODAL_CONFIG: undefined,
-
-            // A list of all the priorities that will be available
-            //  in the submission dialog along with properties associated
-            //  with them.
-            REQUEST_JIRA_PRIORITIES: [],
-
-            // Slack Emoji
-            REQUEST_COMPLETED_SLACK_ICON: "",
-            REQUEST_CANCELLED_SLACK_ICON: "",
-            REQUEST_CLAIMED_SLACK_ICON: "",
-            REQUEST_SUBMITTED_SLACK_ICON: "",
-            REQUEST_WORKING_SLACK_ICON: "",
-            REQUEST_EDITING_SLACK_ICON: "",
-            REQUEST_ERROR_SLACK_ICON: "",
-            REQUEST_PRIORITY_LOW_SLACK_ICON: "",
-            REQUEST_PRIORITY_MEDIUM_SLACK_ICON: "",
-            REQUEST_PRIORITY_HIGH_SLACK_ICON: "",
-
-            // Slack App Details
-            SLACK_BOT_USERNAME: "",
-            SLACK_APP_ID: "__env__",
-            SLACK_CLIENT_ID: "__env__",
-            SLACK_CLIENT_SECRET: "__env__",
-            SLACK_SIGNING_SECRET: "__env__",
-            SLACK_CLIENT_OAUTH_TOKEN: "__env__",
-            SLACK_USER_OAUTH_TOKEN: "__env__",
-
-            // Jira Credentials
-            JIRA_HOST: "__env__",
-            JIRA_USERNAME: "__env__",
-            JIRA_API_KEY: "__env__",
-            JIRA_ADDON_CACHE: "__env__",
-            JIRA_ADDON_KEY: "",
-            JIRA_ADDON_NAME: "",
-            JIRA_ADDON_DESCRIPTION: "",
-
-            // PagerDuty Credentials
-            PAGERDUTY_TOKEN: "__env__",
-            PAGERDUTY_SERVICE_DEFAULT: "__env__",
-            PAGERDUTY_ESCALATION_POLICY_DEFAULT: "__env__",
-            PAGERDUTY_FROM_EMAIL: ""
-        };
-
-        return overrides ? Object.assign({}, defaults, overrides) : {...defaults};
+    public loadConfig(config?: ModuleConfig): ModuleConfig {
+        return config;
     }
 
     // most modules will use at least one connection.  This will allow the user to instantiate the connections
@@ -235,13 +175,15 @@ export class ServiceModule extends NexusModule {
         return this.getActiveConnection("nexus-conn-pagerduty") as PagerDutyConnection
     }
 
+
     /**
      * Retrieves all the components for the configured service project.  If the components have already
      * been retrieved for this instance of the request, then return them without making a request to jira.
      */
     protected async loadJiraProjectComponents(): Promise<ServiceComponent[]> {
 
-        if (this.cachedComponents) {
+        if (this.cachedComponents
+        ) {
             return this.cachedComponents;
         }
 
@@ -270,7 +212,7 @@ export class ServiceModule extends NexusModule {
      * Retrieves all the components for the configured service project.  If the components have already
      * been retrieved for this instance of the request, then return them without making a request to jira.
      */
-    protected async loadJiraPriorities(): Promise<Record<string,JiraPayload>> {
+    protected async loadJiraPriorities(): Promise<Record<string, JiraPayload>> {
 
         if (this.cachedPriorities) {
             return this.cachedPriorities;
