@@ -7,13 +7,14 @@ import {
     ConnectionRequest,
     NexusModule,
     ModuleConfig, INexusActiveModule,
-    checkConfig
+    IConfigGroups
 } from "@nexus-switchboard/nexus-extend";
 import {requestSubcommands} from "./lib/slack/commands";
 import {events} from "./lib/slack/events";
 import {interactions} from "./lib/slack/interactions";
 import loadWebhooks from "./lib/jira/webhooks";
 import configRules from "./lib/config";
+import assert from "assert";
 
 export interface ServiceComponent {
     id: string,
@@ -31,7 +32,6 @@ export interface ServicePriority {
 }
 
 export const logger = createDebug("nexus:service");
-export const confLog = createDebug("nexus:service:config-check");
 
 export class ServiceModule extends NexusModule {
     public name = "service";
@@ -39,17 +39,52 @@ export class ServiceModule extends NexusModule {
     public cachedPriorities: Record<string, JiraPayload>;
     public cachedPreparedPriorities: ServicePriority[];
 
-    public async initialize(active: INexusActiveModule) {
+    protected getConfigRules(): IConfigGroups {
+        return configRules;
+    }
 
-        await super.initialize(active);
+    public async initialize(active: INexusActiveModule): Promise<boolean> {
 
-        const errorCount = checkConfig(active.config, configRules, confLog);
-        if (errorCount > 0) {
-            throw new Error("Received one or more fatal errors in configuration.  See log for more details.");
+        if (await super.initialize(active)) {
+            await this.loadJiraProjectComponents();
+            await this.loadJiraPriorities();
+            return true;
         }
 
-        await this.loadJiraProjectComponents();
-        await this.loadJiraPriorities();
+        return false;
+    }
+
+    /**
+     * This will check to make sure that all the APIs are functioning properly with the right
+     * credentials by making a simple API call to each.
+     * @param _active
+     */
+    public async validate(_active: INexusActiveModule): Promise<boolean> {
+
+        let phase: ("jira"|"slack"|"pagerduty");
+
+        try {
+            // Check Jira Connection
+            phase = "jira";
+            const locale = await this.getJira().api.myself.getLocale();
+            assert(locale.locale);
+
+            // Check Slack Connection
+            phase = "slack";
+            const users = await this.getSlack().apiAsBot.users.list({limit:10});
+            assert(users.ok);
+
+            // Check PagerDuty Connection (if being used)
+            phase = "pagerduty";
+            const vendors = await this.getPagerDuty().api.vendors.listVendors();
+            assert (vendors.statusCode === 200);
+
+            return true;
+
+        } catch(e) {
+            logger(`Validation failed during the "${phase}" check: ${e.toString()}`);
+            return false;
+        }
     }
 
     public get jiraComponents() {
