@@ -160,7 +160,11 @@ export class ServiceModule extends NexusModule {
                     addon: {
                         key: config.JIRA_ADDON_KEY,
                         name: config.JIRA_ADDON_NAME,
-                        description: config.JIRA_ADDON_DESCRIPTION
+                        description: config.JIRA_ADDON_DESCRIPTION,
+                        vendor: {
+                            name: config.JIRA_ADDON_VENDOR_NAME,
+                            url: config.JIRA_ADDON_VENDOR_URL
+                        }
                     },
 
                     baseUrl: `${this.globalConfig.baseUrl}${this.moduleRootPath}`,

@@ -2,10 +2,11 @@ import {IConfigGroups} from "@nexus-switchboard/nexus-extend";
 
 const ConfigRules: IConfigGroups = {
     'Jira Connection': [
-        {name: 'JIRA_USERNAME', required: true, level: "error", reason: "Needed to integrate with Jira APIs"},
+        {name: 'JIRA_USERNAME', type: ["string"], required: true, level: "error", reason: "Needed to integrate with Jira APIs"},
         {name: 'JIRA_API_KEY', required: true, level: "error", reason: "Needed to integrate with Jira APIs"},
         {
             name: 'JIRA_ADDON_CACHE',
+            type: ["string"],
             required: true,
             level: "error",
             reason: "Needed to store addon client data to properly decode host events and requests."
@@ -13,15 +14,31 @@ const ConfigRules: IConfigGroups = {
         {name: 'JIRA_ADDON_KEY', required: true, level: "error", reason: "Needed to uniquely identify this add-on."},
         {
             name: 'JIRA_ADDON_NAME',
+            type: ["string"],
             required: true,
             level: "warning",
             reason: "Needed as a friendly name to display in the Jira Add-On UI"
         },
         {
             name: 'JIRA_ADDON_DESCRIPTION',
+            type: ["string"],
             required: true,
             level: "error",
             reason: "Needed as a description of the purpose of the add on in the Jira Add-On UI"
+        },
+        {
+            name: 'JIRA_ADDON_VENDOR_NAME',
+            type: ["string"],
+            required: false,
+            level: "warning",
+            reason: "Fills in the vendor name in the addon description in Jira."
+        },
+        {
+            name: 'JIRA_ADDON_VENDOR_URL',
+            type: ["string"],
+            required: false,
+            level: "warning",
+            reason: "Fills in the vendor URL in the addon description in Jira."
         }
     ],
     'Jira Integration': [

@@ -2,6 +2,13 @@
 --------------------
 Released on: TBD
 * *Fixed*: If ticket creation fails when triggered by a Global Shortcut, send an error message in a DM to the reporter so they aren't left with any information about what went wrong.
+* *Added*: When loading bot, show the "descriptor" url for integration with Jira
+* *Added*: Add vendor and icon 
+
+*0.5.13*
+--------------------
+* *Added*: Extended self-diagnostic to check connections to third-parties like Jira, PagerDuty and Slack.
+
 
 *0.5.11*
 --------------------
