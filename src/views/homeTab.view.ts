@@ -24,7 +24,10 @@ export default (data: any): any => {
                                 `*Status:* ${issue.state}   *Reporter:* ${issue.reporter ? issue.reporter : '_Unknown_'}\n` +
                                 `${issue.thread_url ? `<${issue.thread_url}|View thread>` : '_Conversation could not be found_'}`
                     }
-                })
+                });
+            ob.blocks.push({
+                type: "divider"
+            })
         });
     } else {
         ob.blocks.push({
