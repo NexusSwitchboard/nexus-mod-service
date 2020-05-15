@@ -1,3 +1,5 @@
+import {IssueTemplateData} from "../lib/slack/homeTab";
+
 export default (data: any): any => {
     const ob = {
         type: "home",
@@ -12,50 +14,17 @@ export default (data: any): any => {
     })
 
     if (data.issues && data.issues.length > 0) {
-        data.issues.forEach((issue: {
-            thread_url: string;
-            key: any; summary: any; reporter: any;
-        }) => {
+        data.issues.forEach((issue: IssueTemplateData) => {
             ob.blocks.push(
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": `*<{{ticket_url}}|${issue.key}> - {${issue.summary}}*`
+                        "text": `${issue.stateIcon} *<${issue.ticket_url}|${issue.key}> - ${issue.summary}*\n`+
+                                `*Status:* ${issue.state}   *Reporter:* ${issue.reporter ? issue.reporter : '_Unknown_'}\n` +
+                                `${issue.thread_url ? `<${issue.thread_url}|View thread>` : '_Conversation could not be found_'}`
                     }
                 })
-
-            ob.blocks.push(
-                {
-                    "type": "section",
-                    "fields": [
-                        {
-                            "type": "mrkdwn",
-                            "text": "*Status*\n${status}"
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": `*Reported by*\n${issue.reporter ? issue.reporter : '_Unknown_'}`
-                        }
-                    ]
-                })
-
-            ob.blocks.push(
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": `${issue.thread_url ? `<${issue.thread_url}|View thread>` : '_Conversation could not be found_'}`
-                        }
-                    ]
-                }
-            )
-
-            ob.blocks.push(
-                {
-                    "type": "divider"
-                });
         });
     } else {
         ob.blocks.push({

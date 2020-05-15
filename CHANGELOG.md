@@ -2,8 +2,15 @@
 --------------------
 Released on: TBD
 * *Fixed*: If ticket creation fails when triggered by a Global Shortcut, send an error message in a DM to the reporter so they aren't left with any information about what went wrong.
-* *Added*: When loading bot, show the "descriptor" url for integration with Jira
-* *Added*: Add vendor and icon 
+
+*0.5.15*
+--------------------
+* *Fixed*: There was a bug where the home tab was not showing open tickets
+* *Fixed*: There is a limit on the number of blocks that can be shown in a view so had to limit the number of tickets show in this view.
+
+*0.5.14*
+--------------------
+* *Added*: Add vendor information to the app descriptor.
 
 *0.5.13*
 --------------------

@@ -1,14 +1,15 @@
+import { SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
+import { JiraTicket } from "@nexus-switchboard/nexus-conn-jira";
+import { ModuleConfig, getNestedVal } from "@nexus-switchboard/nexus-extend";
+import { SlackMessageId } from "./slack/slackMessageId";
+import { logger } from "../index";
+import {RequestState} from "./request";
 /**
  * Given a map of from -> to strings, this will replace all occurrences
  * of each in the given string and return the string with replacements
  * @param str The string to modify
  * @param mapObj The map of strings to map from/to
  */
-import { SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
-import { getNestedVal } from "@nexus-switchboard/nexus-extend";
-import { SlackMessageId } from "./slack/slackMessageId";
-import { logger } from "../index";
-
 export function replaceAll(str: string, mapObj: Record<string, string>) {
     const re = new RegExp(Object.keys(mapObj).join('|'), 'gi');
 
@@ -118,3 +119,49 @@ export function parseEncodedSlackData(data: string): SlackRequestInfo {
 export function createEncodedSlackData(data: SlackRequestInfo): string {
     return `${data.conversationMsg.channel}||${data.conversationMsg.ts}`;
 }
+
+
+export function iconFromState(state: RequestState, config: ModuleConfig): string {
+
+    const statusToIconMap: Record<RequestState, string> = {
+        [RequestState.working]: config.REQUEST_WORKING_SLACK_ICON || ":clock1:",
+        [RequestState.error]: config.REQUEST_ERROR_SLACK_ICON || ":x:",
+        [RequestState.complete]: config.REQUEST_COMPLETED_SLACK_ICON || ":white_circle:",
+        [RequestState.todo]: config.REQUEST_SUBMITTED_SLACK_ICON || ":black_circle:",
+        [RequestState.cancelled]: config.REQUEST_CANCELLED_SLACK_ICON || ":red_circle:",
+        [RequestState.claimed]: config.REQUEST_CLAIMED_SLACK_ICON || ":large_blue_circle:",
+        [RequestState.unknown]: ":red_circle"
+    };
+
+    return state in statusToIconMap ? statusToIconMap[state] : ":question:";
+}
+
+/**
+ * Maps an issue's status to a request state.
+ */
+export function getIssueState(ticket: JiraTicket, config: ModuleConfig): RequestState {
+
+    if (!ticket) {
+        return RequestState.working;
+    }
+
+    const cat: string = getNestedVal(ticket, "fields.status.statusCategory.name");
+
+    if (["undefined", "to do", "new"].indexOf(cat.toLowerCase()) >= 0) {
+        return RequestState.todo;
+    } else if (["indeterminate", "in progress"].indexOf(cat.toLowerCase()) >= 0) {
+        return RequestState.claimed;
+    } else if (["complete", "done"].indexOf(cat.toLowerCase()) >= 0) {
+        const resolution: string = getNestedVal(ticket, "fields.resolution.name");
+        if (resolution) {
+            if (resolution.toLowerCase() === config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
+                return RequestState.complete;
+            } else {
+                return RequestState.cancelled;
+            }
+        }
+        return RequestState.complete;
+    } else {
+        return RequestState.unknown;
+    }
+};

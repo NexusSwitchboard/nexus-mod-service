@@ -7,6 +7,18 @@ import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
 import moduleInstance from "../../index";
 import template from "../../views/homeTab.view";
 import { logger } from "../../index";
+import {getIssueState, iconFromState} from "../util";
+
+export type IssueTemplateData = {
+    key: string,
+    state: string,
+    stateIcon: string,
+    summary: string,
+    reporter: string
+    status: string,
+    thread_url: string,
+    ticket_url: string
+};
 
 export class SlackHomeTab {
     /**
@@ -29,6 +41,11 @@ export class SlackHomeTab {
      */
     private readonly userId: string;
 
+    /**
+     * This is the ID of the user whose home page is being updated.
+     */
+    private readonly maxIssueCount: number=75;
+
     constructor(userId?: string) {
         this.slack = moduleInstance.getSlack();
         this.jira = moduleInstance.getJira();
@@ -41,9 +58,9 @@ export class SlackHomeTab {
 
         // get a list of open requests
         return this.getAllOpenRequests()
-            .then((results) => {
-
-                return Promise.all(results.issues.map(async (issue: JiraPayload) => {
+            .then((results): Promise<IssueTemplateData[]> => {
+                const issues = results.issues.slice(0,this.maxIssueCount);
+                return Promise.all(issues.map(async (issue: JiraPayload) => {
 
                     let initiatingSlackUserId: string;
                     let permalink: string;
@@ -67,18 +84,21 @@ export class SlackHomeTab {
                         }
                     }
 
+                    const state = getIssueState(issue, this.config);
                     return {
                         key: issue.key,
+                        state,
+                        stateIcon: iconFromState(state, this.config),
                         summary: issue.fields.summary,
                         reporter: initiatingSlackUserId ? `<@${initiatingSlackUserId}>` : "Unknown",
                         status: issue.fields.status.name,
                         thread_url: permalink,
                         ticket_url: this.jira.keyToWebLink(this.config.JIRA_HOST, issue.key)
-                    };
+                    } as IssueTemplateData;
                 }));
             })
-            .then((tmplData) => {
-                const view = template(tmplData)
+            .then((issues: IssueTemplateData[]) => {
+                const view = template({issues})
                 return this.slack.apiAsBot.views.publish({
                     user_id: this.userId,
                     view
@@ -91,7 +111,7 @@ export class SlackHomeTab {
         const project = this.config.REQUEST_JIRA_PROJECT;
         const issueTypeId = this.config.REQUEST_JIRA_ISSUE_TYPE_ID;
 
-        const jql = `issuetype=${issueTypeId} and project="${project}" and labels in ("${label}-request") and statusCategory in ("To Do","In Progress")`;
+        const jql = `issuetype=${issueTypeId} and project="${project}" and labels in ("${label}-request") and statusCategory in ("To Do","In Progress") order by created desc`;
         return this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
             jql,
             fields: ["*all"],

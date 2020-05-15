@@ -1,14 +1,13 @@
-import { SlackMessageId } from "./slackMessageId";
-import { logger } from "../../index";
-import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
-import { RequestState } from "../request";
-import { JiraTicket, JiraConnection, JiraPayload } from "@nexus-switchboard/nexus-conn-jira";
-import { SlackConnection, SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
-import { createEncodedSlackData, replaceAll } from "../util";
+import {SlackMessageId} from "./slackMessageId";
+import {logger} from "../../index";
+import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {RequestState} from "../request";
+import {JiraTicket, JiraConnection, JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
+import {SlackConnection, SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
+import {createEncodedSlackData, getIssueState, iconFromState, replaceAll} from "../util";
 import moduleInstance from "../../index";
-import { ChatPostMessageArguments, ChatPostEphemeralArguments, ChatUpdateArguments } from "@slack/web-api";
-import { KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
-import { SlackHomeTab } from "./homeTab";
+import {ChatPostMessageArguments, ChatPostEphemeralArguments, ChatUpdateArguments} from "@slack/web-api";
+import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 
 export const claimButton: IssueAction = {
     code: "claim_request",
@@ -252,15 +251,6 @@ export class SlackThread {
     }
 
     /**
-     * Note that this updates asynchronously on purpose.  There is no rush on this update as it is not visible
-     * to the user unless they switch to the home tab.
-     */
-    public async updateHomeTab() {
-        const tab = new SlackHomeTab();
-        return tab.publish();
-    }
-
-    /**
      * Retrieves a permalink from a channel and string.  It uses the API call to
      * get the link to ensure that it's correct but it will cache the links if multiple calls with the
      * same channel/ts are made.
@@ -271,14 +261,14 @@ export class SlackThread {
         let permalink;
         const key = `${channel}|${ts}`;
         if (!(key in this.cachedPermalinks)) {
-             const results = await this.slack.apiAsBot.chat.getPermalink({
+            const results = await this.slack.apiAsBot.chat.getPermalink({
                 channel: this.channel,
                 message_ts: this.ts
-             });
+            });
 
-             if (results.ok) {
+            if (results.ok) {
                 permalink = results.permalink;
-             }
+            }
 
             this.cachedPermalinks[key] = permalink as string;
         }
@@ -291,8 +281,8 @@ export class SlackThread {
 
             const blocks: (KnownBlock | Block)[] = [];
 
-            const state: RequestState = this.getIssueState();
-            const icon = this.iconFromState(state);
+            const state: RequestState = getIssueState(this.ticket, this.config);
+            const icon = iconFromState(state, this.config);
 
             // Ticket Information
             if (this.ticket) {
@@ -313,7 +303,7 @@ export class SlackThread {
 
             if (this.ticket) {
                 lines.push(`*${this.ticket.key} - ${this.ticket.fields.summary}*`);
-                lines.push(`Current state: ${this.getIssueState()}`)
+                lines.push(`Current state: ${getIssueState(this.ticket, this.config)}`)
             }
             const text = lines.join("/n");
 
@@ -334,37 +324,13 @@ export class SlackThread {
     }
 
     /**
-     * This will add the buttons at the top of the thread in the form of a
-     * reply in the   If there are no messages in the thread then it will add one.
-     * If there is somehow already a message in the thread then it will either overwrite or, if it doesn't
-     * have sufficient permissions will fail.
-     */
-    public async updateActionBar() {
-        const header = await this.getThreadHeaderMessageId();
-
-        try {
-            const blocks = this.buildActionBlocks();
-            const ts = await this.addReply({
-                text: "Action Bar",
-                blocks
-            }, header ? header.ts : undefined);
-
-            if (ts) {
-                this.setActionThread(ts);
-            }
-        } catch (e) {
-            logger("Exception thrown: Unable to update the action bar: " + e.toString());
-        }
-    }
-
-
-    /**
      * Posts a message to the right slack thread with a standard error format
      * @param msg
      * @param messageToUpdateTs If given, it will try and replace the given message
+     * @param ephemeralUserId
      */
     public async addErrorReply(msg: string, messageToUpdateTs?: string, ephemeralUserId?: string) {
-        await this.addReply({ text: `:x: ${msg}` }, messageToUpdateTs, ephemeralUserId);
+        await this.addReply({text: `:x: ${msg}`}, messageToUpdateTs, ephemeralUserId);
     }
 
     /**
@@ -373,6 +339,7 @@ export class SlackThread {
      * then will return the created or updated ts if successful
      * @param messageParams
      * @param ts
+     * @param ephemeralUser
      */
     public async addReply(messageParams: SlackPayload, ts?: string, ephemeralUser?: string): Promise<string> {
         if (ts) {
@@ -482,8 +449,8 @@ export class SlackThread {
 
         const blocks: (KnownBlock | Block)[] = [];
 
-        const state: RequestState = this.getIssueState();
-        const icon = this.iconFromState(state);
+        const state: RequestState = getIssueState(this.ticket, this.config);
+        const icon = iconFromState(state, this.config);
 
         // Ticket Information (if a ticket is given)
         let description = "";
@@ -521,7 +488,7 @@ export class SlackThread {
 
     public static getIndentedDescription(description: string) {
         return replaceAll(description,
-            { "\n": "\n> " }).substr(0, 500);
+            {"\n": "\n> "}).substr(0, 500);
     }
 
     private static getBestUserString(slackUser: SlackPayload, jiraUser: JiraPayload) {
@@ -535,16 +502,6 @@ export class SlackThread {
             userStr = "Unknown User";
         }
         return userStr;
-    }
-
-    public static buildActionBarHeader(): (KnownBlock | Block)[] {
-        return [{
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: "*Ticket Actions*"
-            }
-        }];
     }
 
     /**
@@ -581,10 +538,10 @@ export class SlackThread {
         if (this.reporterSlackId) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
-            const text = `:star: Nicely done!\nTicket <${jiraLink}|${this.ticket.key}> has been created and `+
-                         `a <${permalink}|thread has been started>. Next steps are for someone on the team to claim `+
-                         `your request and start work on it.  Use the slack thread referenced here to chat with your `+
-                         `friendly helper.`;
+            const text = `:star: Nicely done!\nTicket <${jiraLink}|${this.ticket.key}> has been created and ` +
+                `a <${permalink}|thread has been started>. Next steps are for someone on the team to claim ` +
+                `your request and start work on it.  Use the slack thread referenced here to chat with your ` +
+                `friendly helper.`;
 
             await this.notifyUserDirectly(this.reporterSlackId, text);
         }
@@ -624,38 +581,9 @@ export class SlackThread {
         }
     }
 
-    /**
-     * Maps an issue's status to a request state.
-     */
-    public getIssueState(): RequestState {
-
-        if (!this.ticket) {
-            return RequestState.working;
-        }
-
-        const cat: string = getNestedVal(this.ticket, "fields.status.statusCategory.name");
-
-        if (["undefined", "to do", "new"].indexOf(cat.toLowerCase()) >= 0) {
-            return RequestState.todo;
-        } else if (["indeterminate", "in progress"].indexOf(cat.toLowerCase()) >= 0) {
-            return RequestState.claimed;
-        } else if (["complete", "done"].indexOf(cat.toLowerCase()) >= 0) {
-            const resolution: string = getNestedVal(this.ticket, "fields.resolution.name");
-            if (resolution) {
-                if (resolution.toLowerCase() === this.config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
-                    return RequestState.complete;
-                } else {
-                    return RequestState.cancelled;
-                }
-            }
-            return RequestState.complete;
-        } else {
-            return RequestState.unknown;
-        }
-    };
 
     public buildActionBlocks() {
-        const state = this.getIssueState();
+        const state = getIssueState(this.ticket, this.config);
         const actions = this.getMessageActions(state);
 
         const blocks: (KnownBlock | Block)[] = [];
@@ -680,21 +608,6 @@ export class SlackThread {
             });
         }
         return blocks;
-    }
-
-    private iconFromState(state: RequestState): string {
-
-        const statusToIconMap: Record<RequestState, string> = {
-            [RequestState.working]: this.config.REQUEST_WORKING_SLACK_ICON || ":clock1:",
-            [RequestState.error]: this.config.REQUEST_ERROR_SLACK_ICON || ":x:",
-            [RequestState.complete]: this.config.REQUEST_COMPLETED_SLACK_ICON || ":white_circle:",
-            [RequestState.todo]: this.config.REQUEST_SUBMITTED_SLACK_ICON || ":black_circle:",
-            [RequestState.cancelled]: this.config.REQUEST_CANCELLED_SLACK_ICON || ":red_circle:",
-            [RequestState.claimed]: this.config.REQUEST_CLAIMED_SLACK_ICON || ":large_blue_circle:",
-            [RequestState.unknown]: ":red_circle"
-        };
-
-        return state in statusToIconMap ? statusToIconMap[state] : ":question:";
     }
 
     /**
@@ -733,7 +646,7 @@ export class SlackThread {
 
         // This takes the fields and converts them to flat text.
         const participants = this.getParticipantsAsFields(slackUser, jiraUser);
-        participants.forEach((p)=> {
+        participants.forEach((p) => {
             lines.push(p.text)
         });
 
@@ -777,7 +690,7 @@ export class SlackThread {
         const jiraPriority = getNestedVal(this.ticket, "fields.priority");
 
         if (jiraPriority) {
-            const priorityInfo = moduleInstance.preparedPriorities.find((p)=>{
+            const priorityInfo = moduleInstance.preparedPriorities.find((p) => {
                 return p.jiraId === jiraPriority.id
             });
 
@@ -785,9 +698,9 @@ export class SlackThread {
 
             return {
                 type: "mrkdwn",
-                text: `*Priority*\n`+
+                text: `*Priority*\n` +
                     `${emoji ? priorityInfo.slackEmoji : ""} ` +
-                    `${jiraPriority.name }`
+                    `${jiraPriority.name}`
             }
         } else {
             return {
@@ -798,7 +711,6 @@ export class SlackThread {
     }
 
 
-
     /**
      * This will take information about the slack or Jira user that performed the last action
      * and combine that with the known reporter of the issue to return two at most two field objects
@@ -806,12 +718,12 @@ export class SlackThread {
      * @param slackUser
      * @param jiraUser
      */
-    private getParticipantsAsFields(slackUser: SlackPayload, jiraUser: JiraPayload): (MrkdwnElement|PlainTextElement)[] {
+    private getParticipantsAsFields(slackUser: SlackPayload, jiraUser: JiraPayload): (MrkdwnElement | PlainTextElement)[] {
 
-        const state = this.getIssueState();
+        const state = getIssueState(this.ticket, this.config);
         const userStr = SlackThread.getBestUserString(slackUser, jiraUser);
 
-        const fields: (MrkdwnElement|PlainTextElement)[] = [
+        const fields: (MrkdwnElement | PlainTextElement)[] = [
             {
                 type: "mrkdwn",
                 text: `*Reported by*\n<@${this.reporterSlackId}>`
