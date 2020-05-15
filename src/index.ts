@@ -76,8 +76,11 @@ export class ServiceModule extends NexusModule {
 
             // Check PagerDuty Connection (if being used)
             phase = "pagerduty";
-            const vendors = await this.getPagerDuty().api.vendors.listVendors();
-            assert (vendors.statusCode === 200);
+            if (this.getActiveModuleConfig().PAGERDUTY_TOKEN) {
+                // Only check here if pagerduty has been setup as as possible
+                const vendors = await this.getPagerDuty().api.vendors.listVendors();
+                assert (vendors.statusCode === 200);
+            }
 
             return true;
 

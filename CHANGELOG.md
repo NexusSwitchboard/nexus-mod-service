@@ -3,6 +3,10 @@
 Released on: TBD
 * *Fixed*: If ticket creation fails when triggered by a Global Shortcut, send an error message in a DM to the reporter so they aren't left with any information about what went wrong.
 
+*0.5.16*
+--------------------
+* *Fixed* If PAGERDUTY_TOKEN not set then early validation of services check fails and app doesn't load properly.
+
 *0.5.15*
 --------------------
 * *Fixed*: There was a bug where the home tab was not showing open tickets
