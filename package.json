@@ -20,8 +20,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nexus-switchboard/nexus-conn-jira": "^0.1.11",
-    "@nexus-switchboard/nexus-conn-pagerduty": "0.0.2",
+    "@nexus-switchboard/nexus-conn-jira": "^0.1.14",
+    "@nexus-switchboard/nexus-conn-pagerduty": "^0.0.3",
     "@nexus-switchboard/nexus-conn-slack": "^0.2.9",
     "@nexus-switchboard/nexus-extend": "^0.5.7",
     "assert": "^2.0.0",
