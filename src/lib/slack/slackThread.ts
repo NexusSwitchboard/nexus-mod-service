@@ -458,6 +458,7 @@ export class SlackThread {
 
             const fields = this.getParticipantsAsFields(slackUser, jiraUser);
             fields.push(this.getPriorityField());
+            fields.push(this.getComponentField());
 
             const ticketLink: string = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
             const sectionTitle = `${icon} *<${ticketLink}|${this.ticket.key} - ${this.ticket.fields.summary}>*`;
@@ -685,6 +686,7 @@ export class SlackThread {
         }
     }
 
+
     private getPriorityField(): (MrkdwnElement | PlainTextElement) {
 
         const jiraPriority = getNestedVal(this.ticket, "fields.priority");
@@ -710,6 +712,24 @@ export class SlackThread {
         }
     }
 
+    private getComponentField(): (MrkdwnElement | PlainTextElement) {
+
+        const components = getNestedVal(this.ticket, "fields.components");
+
+        if (components) {
+            const componentNames = components.map((c: any)=>c.name);
+
+            return {
+                type: "mrkdwn",
+                text: `*Category*\n${componentNames.join(', ')}`
+            }
+        } else {
+            return {
+                type: "mrkdwn",
+                text: `*Components*\nNot Set`
+            }
+        }
+    }
 
     /**
      * This will take information about the slack or Jira user that performed the last action
