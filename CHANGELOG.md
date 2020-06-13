@@ -1,7 +1,10 @@
-*UNRELEASED*
+*0.5.19*
 --------------------
-Released on: TBD
-* *Fixed*: If ticket creation fails when triggered by a Global Shortcut, send an error message in a DM to the reporter so they aren't left with any information about what went wrong.
+ * *Added*: Show the component along with other request information in top-level message.
+
+*0.5.18*
+--------------------
+ * *Fixed*: If ticket creation fails when triggered by a Global Shortcut, send an error message in a DM to the reporter so they aren't left with any information about what went wrong.
 
 *0.5.16*
 --------------------

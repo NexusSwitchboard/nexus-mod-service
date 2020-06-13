@@ -208,6 +208,7 @@ export default class ServiceRequest {
                 priority: values.priority,
                 components: [values.category]
             });
+
         } catch (e) {
             logger("There was a problem processing the infra request submission: " + e.toString());
         }
@@ -388,6 +389,58 @@ export default class ServiceRequest {
         return this.thread;
     };
 
+    protected getRequestReplyMsgBlocks(params: IRequestParams): SlackPayload {
+
+        const infoMsg = ":information_source: Use this thread to communicate about the request.  " +
+            "Note that all of these comments will be recorded as comments on the associated Jira Ticket."
+
+        const description = params.description ? "> " + SlackThread.getIndentedDescription(params.description) : "";
+        const blocks: any = [{
+            type: "section",
+            block_id: "request_description",
+            text: {
+                type: "mrkdwn",
+                text: description ? "*Request Description*\n" + description : "_No description given_"
+            }
+        }, {type: "divider"}];
+
+        const priorityInfo = moduleInstance.lookupPriorityByJiraId(params.priority);
+        if (priorityInfo && priorityInfo.triggersPagerDuty) {
+            blocks.push({
+                type: "section",
+                block_id: "high_priority_warning",
+                text: {
+                    type: "mrkdwn",
+                    text: ServiceRequest.config.REQUEST_HIGH_PRIORITY_MSG
+                }
+            })
+            blocks.push({
+                type: "actions",
+                block_id: "infra_request_actions",
+                elements: [{
+                    type: "button",
+                    text: {
+                        type: "plain_text",
+                        text: ServiceRequest.config.REQUEST_ON_CALL_BUTTON_NAME
+                    },
+                    value: "page_request",
+                    action_id: "page_request",
+                    style: "danger"
+                }]
+            });
+        } else {
+            blocks.push({
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: infoMsg
+                }
+            })
+        }
+
+        return blocks;
+    }
+
     public async create(params: IRequestParams): Promise<boolean> {
 
         try {
@@ -414,44 +467,43 @@ export default class ServiceRequest {
                 this.thread.reporterSlackId = this.initiatingSlackUserId;
                 await this.updateSlackThread()
 
-                const infoMsg = ":information_source: Use this thread to communicate about the request.  " +
-                    "Note that all of these comments will be recorded as comments on the associated Jira Ticket."
-
-                const description = params.description ? "> " + SlackThread.getIndentedDescription(params.description) : "";
-
+                //
+                // POST A REPLY IN THE REQUEST THREAD
+                //
                 this.thread.addReply({
-                        blocks: [{
-                            type: "section",
-                            text: {
-                                type: "mrkdwn",
-                                text: description ? "*Request Description*\n" + description : "_No description given_"
-                            }
-                        }, { type: "divider" }, {
-                            type: "section",
-                            text: {
-                                type: "mrkdwn",
-                                text: infoMsg
-                            }
-                        }],
-                        text: description + "\n" + infoMsg
+                    blocks: this.getRequestReplyMsgBlocks(params)
+                })
+                    .catch((e) => {
+                        logger("Exception thrown while posting to notification channel: " + e.toString());
                     })
-                    .catch((e) => {logger("Exception thrown while posting to notification channel: " + e.toString());})
 
+                //
+                // POST A MESSAGE IN THE NOTIFICATION CHANNEL
+                //      (if request came from a non-primary channel)
+                //
                 this.thread.postMsgToNotificationChannel(
-                    `Request submitted by <@${this.thread.reporterSlackId}> was created successfully`)
+                    `Request submitted by <@${this.thread.reporterSlackId}> was created successfully`
+                )
                     .catch((e) => {
                         logger("Exception thrown while posting to notification channel: " + e.toString());
                     });
 
+                //
+                // POST A DM TO THE REPORTER
+                //      (if reporter slack ID is known)
+                //
                 this.thread.notifyReporterOfCreatedTicket()
-
-                // Now check to see if we need to send a pager duty alert
-                const priorityInfo = moduleInstance.lookupPriorityByJiraId(params.priority);
-                if (priorityInfo && priorityInfo.triggersPagerDuty) {
-                    this.createPagerDutyAlert(params).catch((e) => {
-                        logger("Exception thrown when trying to send pager duty alert: " + e.toString());
+                    .catch((e) => {
+                        logger("Exception thrown while posting to reporter's DM channel: " + e.toString());
                     });
-                }
+
+                // // Now check to see if we need to send a pager duty alert
+                // const priorityInfo = moduleInstance.lookupPriorityByJiraId(params.priority);
+                // if (priorityInfo && priorityInfo.triggersPagerDuty) {
+                //     this.createPagerDutyAlert(params).catch((e) => {
+                //         logger("Exception thrown when trying to send pager duty alert: " + e.toString());
+                //     });
+                // }
 
                 return true;
             } else {
@@ -705,7 +757,7 @@ export default class ServiceRequest {
     /**
      * Creates a PagerDuty alert if priority is critical
      */
-    protected async createPagerDutyAlert(request: IRequestParams) {
+    public async createPagerDutyAlert(request: IRequestParams) {
         try {
             const ticketLink = this.jira.keyToWebLink(ServiceRequest.config.JIRA_HOST, this.ticket.key);
             let description = `${this.ticket.key}\n${ticketLink}\n-----\n`;
@@ -721,7 +773,7 @@ export default class ServiceRequest {
                 {
                     incident: {
                         type: "incident",
-                        title: `${this.ticket.key} - ${request.title}`,
+                        title: `${this.ticket.key} - ${this.ticket.summary}`,
                         service: {
                             id: ServiceRequest.config.PAGERDUTY_SERVICE_DEFAULT,
                             type: "service_reference"

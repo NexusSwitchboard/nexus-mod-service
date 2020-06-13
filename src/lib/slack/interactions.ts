@@ -75,6 +75,37 @@ export const interactions: ISlackInteractionHandler[] = [{
             ServiceRequest.postTransitionMessage(slackParams, "Completing request...");
         }
 
+        ////////// PAGE ON-CALL BUTTON
+        if (slackParams.actions[0].value === "page_request") {
+            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
+                .then((request) => {
+                    return request.createPagerDutyAlert(slackParams).catch((e) => {
+                        logger("Exception thrown when trying to send pager duty alert: " + e.toString());
+                    });
+                })
+                .catch((err: Error) => {
+                    logger(`Failed to send pager duty request for message ${slackParams.message.thread_ts}. ` +
+                        `Error: ${err.toString()}`);
+                });
+
+            const newBlocks = slackParams.message.blocks.filter((b:any)=>{
+                return (b.block_id === "request_description" ||
+                        b.block_id === "high_priority_warning")
+            });
+            newBlocks.push({
+                type: "section",
+                block_id: "page_request_completed",
+                text: {
+                    type: "mrkdwn",
+                    text: moduleInstance.getActiveModuleConfig().REQUEST_ON_CALL_PRESSED_MSG
+                }
+            })
+            moduleInstance.getSlack().sendMessageResponse(slackParams, {
+                replace_original: true,
+                blocks: newBlocks
+            });
+        }
+
         return {
             code: 200
         };

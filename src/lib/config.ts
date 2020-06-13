@@ -104,6 +104,27 @@ const ConfigRules: IConfigGroups = {
             reason: "If given, then this is the ID of the component that should be pre-selected in the request dialog.  This should be a stringified number."
         },
         {
+            name: 'REQUEST_HIGH_PRIORITY_MSG',
+            required: true,
+            type: ["string"],
+            level: "error",
+            reason: "This is the message that is shown when a user chooses a priority that can trigger a pager duty alert."
+        },
+        {
+            name: 'REQUEST_ON_CALL_BUTTON_NAME',
+            required: true,
+            type: ["string"],
+            level: "error",
+            reason: "This is the text to show on the high priority emergency page button (shown when a user selects a high priority that is tied to a pager duty call)."
+        },
+        {
+            name: 'REQUEST_ON_CALL_PRESSED_MSG',
+            required: true,
+            type: ["string"],
+            level: "error",
+            reason: "This is the text that's shown after a user has clicked the high priority emergency page button (it repalces the button in the message)."
+        },
+        {
             name: 'REQUEST_JIRA_SERVICE_LABEL',
             required: true,
             type: ["string"],
