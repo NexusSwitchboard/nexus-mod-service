@@ -65,6 +65,9 @@ export type ChannelAssignments = {
     conversationChannelId: string
 }
 
+/**
+ * Helps to manage the slack thread that is used to represent a single request.
+ */
 export class SlackThread {
 
     public conversationMessage: SlackMessageId;
