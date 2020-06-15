@@ -527,7 +527,7 @@ export default class ServiceRequest {
     public async addCommentFromMessageEvent(slackEventPayload: SlackPayload): Promise<JiraPayload> {
 
         try {
-
+            logger("Received thread comment - sending to Jira...");
             const messageTs = findProperty(slackEventPayload, "ts");
             const text = findProperty(slackEventPayload, "text");
             const permaLink = await this.slack.apiAsBot.chat.getPermalink({

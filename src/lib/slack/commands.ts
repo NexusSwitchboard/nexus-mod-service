@@ -10,7 +10,6 @@ export const requestSubcommands: SlackSubCommandList = {
     default: async (_conn, textWithoutAction, slackParams): Promise<ISlackAckResponse> => {
 
         try {
-            logger("Just letting you know I got here");
             const channel = findProperty(slackParams, "channel_id");
             const slackUserId = findProperty(slackParams, "user_id");
 
