@@ -16,6 +16,9 @@ import loadWebhooks from "./lib/jira/webhooks";
 import configRules from "./lib/config";
 import assert from "assert";
 
+
+export {IServiceApproval, IServiceApprovalConfig} from "./lib/approval";
+
 export interface ServiceComponent {
     id: string,
     name: string,

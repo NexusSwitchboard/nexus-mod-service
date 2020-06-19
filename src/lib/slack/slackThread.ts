@@ -2,12 +2,13 @@ import {SlackMessageId} from "./slackMessageId";
 import {logger} from "../../index";
 import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
 import {RequestState} from "../request";
-import {JiraTicket, JiraConnection, JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
+import {JiraTicket, JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection, SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import {createEncodedSlackData, getIssueState, iconFromState, replaceAll} from "../util";
 import moduleInstance from "../../index";
 import {ChatPostMessageArguments, ChatPostEphemeralArguments, ChatUpdateArguments} from "@slack/web-api";
 import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
+import {Actor} from "../actor";
 
 export const claimButton: IssueAction = {
     code: "claim_request",
@@ -55,8 +56,7 @@ export type JiraIssueSidecarData = {
 };
 
 export interface ThreadUpdateParams {
-    slackUser?: SlackPayload;
-    jiraUser?: JiraPayload;
+    actor?: Actor;
     message?: string;
 }
 
@@ -73,9 +73,10 @@ export class SlackThread {
     public conversationMessage: SlackMessageId;
     public actionMessageId: SlackMessageId;
 
-    protected _reporterSlackId: string;
-    protected _claimerSlackId: string;
-    protected _closerSlackId: string;
+    protected _reporter: Actor;
+    protected _claimer: Actor;
+    protected _closer: Actor;
+
     protected _ticket: JiraTicket;
     protected slack: SlackConnection;
     protected jira: JiraConnection;
@@ -97,28 +98,28 @@ export class SlackThread {
         this.notificationChannel = (notificationChannel === this.conversationMessage.channel) ? undefined : notificationChannel;
     }
 
-    public get reporterSlackId(): string {
-        return this._reporterSlackId;
+    public get reporter(): Actor {
+        return this._reporter;
     }
 
-    public set reporterSlackId(val: string) {
-        this._reporterSlackId = val;
+    public set reporter(val: Actor) {
+        this._reporter = val;
     }
 
-    public get claimerSlackId(): string {
-        return this._claimerSlackId;
+    public get claimer(): Actor {
+        return this._claimer;
     }
 
-    public set claimerSlackId(val: string) {
-        this._claimerSlackId = val;
+    public set claimer(val: Actor) {
+        this._claimer = val;
     }
 
-    public get closerSlackId(): string {
-        return this._closerSlackId;
+    public get closer(): Actor {
+        return this._closer;
     }
 
-    public set closerSlackId(val: string) {
-        this._closerSlackId = val;
+    public set closer(val: Actor) {
+        this._closer = val;
     }
 
     public get channel(): string {
@@ -169,9 +170,9 @@ export class SlackThread {
         //  latter because it's slow to pull a full list of replies from the thread just to get the first one.  At
         //  the time of writing this, it was not possible to return just the first reply (grrr..).
         this.actionMessageId = new SlackMessageId(this.channel, botProps.actionMsgId);
-        this.reporterSlackId = botProps.reporterSlackId;
-        this.claimerSlackId = botProps.claimerSlackId;
-        this.closerSlackId = botProps.closerSlackId;
+        this._reporter = new Actor({slackUserId: botProps.reporterSlackId});
+        this._claimer = new Actor({slackUserId: botProps.claimerSlackId});
+        this._closer = new Actor({slackUserId: botProps.closerSlackId});
         this.notificationChannel = botProps.notificationChannelId;
     }
 
@@ -225,31 +226,8 @@ export class SlackThread {
         });
     }
 
-    public setActionThread(ts: string) {
-        if (!this.actionMessageId) {
-            this.actionMessageId = new SlackMessageId(this.conversationMessage.channel, ts);
-        } else {
-            this.actionMessageId.ts = ts;
-        }
-    }
-
-    public async getThreadHeaderMessageId(): Promise<SlackMessageId> {
-        try {
-            if (!this.conversationMessage.ts) {
-                logger("You cannot find a status reply without an existing source thread");
-                return undefined;
-            }
-
-            return this.actionMessageId;
-        } catch (e) {
-            logger("Exception thrown: When trying to get the action bar message ID: " + e.toString());
-            return undefined;
-        }
-    }
-
-
     public async update(params: ThreadUpdateParams) {
-        await this.updateTopLevelMessage(params.message, params.slackUser, params.jiraUser);
+        await this.updateTopLevelMessage(params.message, params.actor);
         // await this.updateActionBar();
     }
 
@@ -400,10 +378,10 @@ export class SlackThread {
         return undefined;
     }
 
-    public async updateTopLevelMessage(msg?: string, slackUser?: SlackPayload, jiraUser?: JiraPayload) {
+    public async updateTopLevelMessage(msg?: string, actor?: Actor) {
 
-        const blocks = this.buildTextBlocks(msg, true, slackUser, jiraUser);
-        const plainText = this.buildPlainTextString(msg, slackUser, jiraUser);
+        const blocks = this.buildTextBlocks(msg, true, actor);
+        const plainText = this.buildPlainTextString(msg, actor);
 
         // the source request was an APP post which means we can update it without extra permissions.
         await this.slack.apiAsBot.chat.update({
@@ -445,10 +423,9 @@ export class SlackThread {
      * a purely text-based version of this, then use the buildPlainTextString
      * @param customMsg
      * @param compact
-     * @param slackUser
-     * @param jiraUser
+     * @param actor
      */
-    public buildTextBlocks(customMsg: string, compact: boolean, slackUser?: SlackPayload, jiraUser?: JiraPayload): (KnownBlock | Block)[] {
+    public buildTextBlocks(customMsg: string, compact: boolean, actor?: Actor): (KnownBlock | Block)[] {
 
         const blocks: (KnownBlock | Block)[] = [];
 
@@ -459,7 +436,7 @@ export class SlackThread {
         let description = "";
         if (this.ticket) {
 
-            const fields = this.getParticipantsAsFields(slackUser, jiraUser);
+            const fields = this.getParticipantsAsFields(actor);
             fields.push(this.getPriorityField());
             fields.push(this.getComponentField());
 
@@ -495,29 +472,16 @@ export class SlackThread {
             {"\n": "\n> "}).substr(0, 500);
     }
 
-    private static getBestUserString(slackUser: SlackPayload, jiraUser: JiraPayload) {
-        // Prefer to use the Slack user for rendering in slack.
-        let userStr: string;
-        if (slackUser) {
-            userStr = `<@${slackUser.id}>`;
-        } else if (jiraUser) {
-            userStr = jiraUser.displayName;
-        } else {
-            userStr = "Unknown User";
-        }
-        return userStr;
-    }
-
     /**
      * Sends a message to the reporter with information about the ticket
      * that was just completed and a link to the conversation where it all went down.
      */
     public async notifyReporterOfCompletion() {
-        if (this.reporterSlackId) {
+        if (this.reporter) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
             const text = `:tada: Another one bites the dust!\nThe request you submitted (<${jiraLink}|${this.ticket.key}>) has been marked complete.  <${permalink}|Click here to visit the thread in Slack>`;
-            await this.notifyUserDirectly(this.reporterSlackId, text);
+            await this.notifyUserDirectly(this.reporter, text);
         }
     }
 
@@ -526,11 +490,11 @@ export class SlackThread {
      * that was just completed and a link to the conversation where it all went down.
      */
     public async notifyReporterOfClaimedTicket() {
-        if (this.reporterSlackId) {
+        if (this.reporter) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
             const text = `:rocket: Guess what?\nThe request you submitted (<${jiraLink}|${this.ticket.key}>) has been claimed!  <${permalink}|Click here to visit the thread in Slack>`;
-            await this.notifyUserDirectly(this.reporterSlackId, text);
+            await this.notifyUserDirectly(this.reporter, text);
         }
     }
 
@@ -539,7 +503,7 @@ export class SlackThread {
      * that was just completed and a link to the conversation where it all went down.
      */
     public async notifyReporterOfCreatedTicket() {
-        if (this.reporterSlackId) {
+        if (this.reporter) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
             const text = `:star: Nicely done!\nTicket <${jiraLink}|${this.ticket.key}> has been created and ` +
@@ -547,7 +511,7 @@ export class SlackThread {
                 `your request and start work on it.  Use the slack thread referenced here to chat with your ` +
                 `friendly helper.`;
 
-            await this.notifyUserDirectly(this.reporterSlackId, text);
+            await this.notifyUserDirectly(this.reporter, text);
         }
     }
 
@@ -556,25 +520,29 @@ export class SlackThread {
      * that was just completed and a link to the conversation where it all went down.
      */
     public async notifyReporterOfCancelledTicket() {
-        if (this.reporterSlackId) {
+        if (this.reporter) {
             const permalink = await this.getPermalink(this.channel, this.ts);
             const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
             const text = `:face_with_hand_over_mouth: Hmmm...\nThe request you submitted (<${jiraLink}|${this.ticket.key}>) has been cancelled.  If that's a surprise to you, <${permalink}|check out the thread in the main service channel>`;
-            await this.notifyUserDirectly(this.reporterSlackId, text);
+            await this.notifyUserDirectly(this.reporter, text);
         }
     }
 
     /**
      * Utility function to send a message to a user through direct message.
-     * @param slackUserId The ID of the user to send to
+     * @param actor The user to notify
      * @param msg The message to send.
      */
-    public async notifyUserDirectly(slackUserId: string, msg: string) {
+    public async notifyUserDirectly(actor: Actor, msg: string) {
+
+        if (!actor.slackUserId) {
+            throw new Error("Failed to notify user directly because slack user ID could not be found.  Message not sent: " + msg);
+        }
         const text = msg;
         const options: ChatPostMessageArguments = {
             text,
             blocks: [this.getSectionBlockFromText(msg)],
-            channel: slackUserId,
+            channel: actor.slackUserId,
             as_user: true
         };
 
@@ -637,7 +605,7 @@ export class SlackThread {
         return [];
     }
 
-    public buildPlainTextString(customMsg: string, slackUser?: SlackPayload, jiraUser?: JiraPayload): string {
+    public buildPlainTextString(customMsg: string, actor: Actor): string {
 
         const lines: string[] = [];
 
@@ -649,7 +617,7 @@ export class SlackThread {
         }
 
         // This takes the fields and converts them to flat text.
-        const participants = this.getParticipantsAsFields(slackUser, jiraUser);
+        const participants = this.getParticipantsAsFields(actor);
         participants.forEach((p) => {
             lines.push(p.text)
         });
@@ -720,7 +688,7 @@ export class SlackThread {
         const components = getNestedVal(this.ticket, "fields.components");
 
         if (components) {
-            const componentNames = components.map((c: any)=>c.name);
+            const componentNames = components.map((c: any) => c.name);
 
             return {
                 type: "mrkdwn",
@@ -738,37 +706,41 @@ export class SlackThread {
      * This will take information about the slack or Jira user that performed the last action
      * and combine that with the known reporter of the issue to return two at most two field objects
      * that can be displayed as part of the top level issue message.
-     * @param slackUser
-     * @param jiraUser
+     * @param actor
      */
-    private getParticipantsAsFields(slackUser: SlackPayload, jiraUser: JiraPayload): (MrkdwnElement | PlainTextElement)[] {
+    private getParticipantsAsFields(actor: Actor): (MrkdwnElement | PlainTextElement)[] {
 
-        const state = getIssueState(this.ticket, this.config);
-        const userStr = SlackThread.getBestUserString(slackUser, jiraUser);
+        const fields: (MrkdwnElement | PlainTextElement)[] = [];
+        if (this.reporter) {
+            const reporterStr = this.reporter.getBestUserStringForSlack();
+            fields.push(
+                {
+                    type: "mrkdwn",
+                    text: `*Reported by*\n ${reporterStr}`
+                }
+            );
+        }
 
-        const fields: (MrkdwnElement | PlainTextElement)[] = [
-            {
-                type: "mrkdwn",
-                text: `*Reported by*\n<@${this.reporterSlackId}>`
+        if (actor) {
+            const state = getIssueState(this.ticket, this.config);
+            const userStr = actor.getBestUserStringForSlack();
+
+            if (state === RequestState.claimed) {
+                fields.push({
+                    type: "mrkdwn",
+                    text: `*Claimed by*\n ${userStr}`
+                });
+            } else if (state === RequestState.complete) {
+                fields.push({
+                    type: "mrkdwn",
+                    text: `*Completed by*\n ${userStr}`
+                });
+            } else if (state === RequestState.cancelled) {
+                fields.push({
+                    type: "mrkdwn",
+                    text: `*Cancelled by*\n ${userStr}`
+                });
             }
-        ];
-
-
-        if (state === RequestState.claimed) {
-            fields.push({
-                type: "mrkdwn",
-                text: `*Claimed by*\n ${userStr}`
-            });
-        } else if (state === RequestState.complete) {
-            fields.push({
-                type: "mrkdwn",
-                text: `*Completed by*\n ${userStr}`
-            });
-        } else if (state === RequestState.cancelled) {
-            fields.push({
-                type: "mrkdwn",
-                text: `*Cancelled by*\n ${userStr}`
-            });
         }
 
         return fields;
