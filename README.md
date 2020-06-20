@@ -32,13 +32,16 @@ In addition to the notifications mentioned above, users will get DMs from the mo
 
 
 # Implementation
-The ServiceRequest class is where the bulk of the functionality lives. The `interactions.ts` file is where the interactions are received.  
+The ServiceRequest class is where the bulk of the functionality lives. The `lib/jira/webhooks.ts`, `lib/slack/events.ts` and `lib/slack/interactions.ts` files are where the events and interactions are received from both slack and Jira.  
 
 ## Associating Slack with Jira and vice versa
-The most important thing to remember is that we use the channel and timestamp of the thread to associate slack actions with the created ticket.  To do that, we submit the channel/ts combo as a label in Jira and use that to reference back to the original slack message and action areas.  That label is what allows us to initially find the ticket but we store additional information as hidden properties of the Jira issue using the Issue Properties APIs.  Information included in the properties live under the key `infrabot` and include the channel, thread ts, action message ts and the originating slack user ID.
+The most important thing to remember is that we use the channel and timestamp of the thread to associate slack actions with the created ticket.  To do that, we submit the channel/ts combo as a label in Jira and use that to reference back to the original slack message and action areas.  That label is what allows us to initially find the ticket but we store additional information as hidden properties of the Jira issue using the Issue Properties APIs.  Information included in the properties live under the key configured with the `REQUEST_JIRA_SERVICE_LABEL` setting and include the channel, thread ts, action message ts and the originating slack user ID.
 
 ## Associating Slack Users with Jira Users
 In order for the create, claim, cancel and complete actions to set the reporter and assignee properly based on the slack user who is performing the action, we assume that the email associated with the slack user is the same as the email associated with the jira user.  *If that is not the case, then user operations will not work.*
+
+# Flow Orchestration
+When events are received by the module, they are quickly shuffled off to the Flow Orchestration static object.  Based on the action that triggered the event, the proper call will be made to complete the request.  For example, if the ACTION_CLAIM_REQUEST action is initiated, a call to `request.claim` will follow.
 
 # Jira Configuration
 The workflow associated with the project you are connecting to this module must be configured in a way that will allow for proper integration:

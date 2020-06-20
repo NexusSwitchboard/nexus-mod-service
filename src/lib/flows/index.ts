@@ -1,9 +1,19 @@
 import ServiceRequest from "../request";
 
+export type FlowAction = string;
+export const ACTION_MODAL_REQUEST: FlowAction = "modal_request";
+export const ACTION_MODAL_SUBMISSION: FlowAction = "modal_submission";
+export const ACTION_CLAIM_REQUEST: FlowAction = "claim_request";
+export const ACTION_COMPLETE_REQUEST: FlowAction = "complete_request";
+export const ACTION_CANCEL_REQUEST: FlowAction = "cancel_request";
+export const ACTION_COMMENT_ON_REQUEST: FlowAction = "comment_on_request";
+export const ACTION_PAGE_REQUEST: FlowAction = "page_request";
+export const ACTION_TICKET_CHANGED: FlowAction = "jira_ticket_changed";
 
 export type FlowState = string;
 export const STATE_UNKNOWN: FlowState = "unknown";
 export const STATE_NO_TICKET: FlowState = "no_ticket";
+export const STATE_MID_TICKET_SUBMISSION: FlowState = "mid_ticket_submission";
 export const STATE_NOT_STARTED: FlowState = "not_started";
 export const STATE_COMPLETED_SUCCESS: FlowState = "completed_successfully";
 export const STATE_COMPLETED_FAILED: FlowState = "completed_with_failure";
@@ -15,9 +25,8 @@ export abstract class ServiceFlow {
     request: ServiceRequest;
 
     public constructor(request: ServiceRequest) {
-        if (this._getStateFromRequest(request)) {
-            this.request = request;
-        }
+        this.currentState = this._getStateFromRequest(request);
+        this.request = request;
     }
 
     /**

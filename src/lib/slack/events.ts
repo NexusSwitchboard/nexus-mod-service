@@ -3,6 +3,8 @@ import {findNestedProperty, findProperty} from "@nexus-switchboard/nexus-extend"
 import {logger} from "../..";
 import ServiceRequest from "../../lib/request";
 import { SlackHomeTab } from "./homeTab";
+import {FlowOrchestrator} from "../flows/orchestrator";
+import {SlackThread} from "./slackThread";
 
 /**
  * General handler for thread posts made in threads that are part of an open request.
@@ -13,7 +15,7 @@ const handlePostedThreadMessage = async (_conn: SlackConnection,
                                          slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
     // ignore any message that is posted by a bot.
-    if (!ServiceRequest.isBotMessage(slackParams.message || slackParams)) {
+    if (!SlackThread.isBotMessage(slackParams.message || slackParams)) {
 
         // then see if this is associated with a request ticket.
         const channel = findProperty(slackParams, "channel");
@@ -26,9 +28,9 @@ const handlePostedThreadMessage = async (_conn: SlackConnection,
 
             // note that we don't block on requests in the main flow because slack is expecting a response of some
             //  kind within a very short period.
-            ServiceRequest.loadThreadFromSlackEvent(slackUserId, channel, threadTs)
+            FlowOrchestrator.buildRequestObFromSlackEvent(slackUserId, channel, threadTs)
                 .then(async (request: ServiceRequest) => {
-                    return await request.addCommentFromMessageEvent(slackParams);
+                    return await request.commentFromSlack(slackParams);
                 })
                 .catch((e) => {
                     logger("Exception thrown: Unable to send comment to Jira: " + e.toString());

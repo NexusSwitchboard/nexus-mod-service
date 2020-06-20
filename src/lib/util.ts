@@ -1,9 +1,11 @@
-import { SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
-import { JiraTicket } from "@nexus-switchboard/nexus-conn-jira";
-import { ModuleConfig, getNestedVal } from "@nexus-switchboard/nexus-extend";
-import { SlackMessageId } from "./slack/slackMessageId";
-import { logger } from "../index";
+import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
+import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
+import {ModuleConfig, getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {SlackMessageId} from "./slack/slackMessageId";
+import {logger} from "../index";
 import {RequestState} from "./request";
+import {Actor} from "./actor";
+
 /**
  * Given a map of from -> to strings, this will replace all occurrences
  * of each in the given string and return the string with replacements
@@ -42,7 +44,7 @@ export function prepTitleAndDescription(title: string, description: string) {
     if (title.length <= 255) {
         // make sure we are returning valid strings
         description = description || '';
-        return { title, description };
+        return {title, description};
     }
 
     const ELLIPSIS = '...';
@@ -55,7 +57,7 @@ export function prepTitleAndDescription(title: string, description: string) {
     // and remove the extra from the title.
     title = title.slice(0, SLICE_INDEX) + ELLIPSIS;
 
-    return { title, description };
+    return {title, description};
 
 }
 
@@ -83,27 +85,27 @@ export type SlackRequestInfo = {
  * @param data
  */
 export function parseEncodedSlackData(data: string): SlackRequestInfo {
-        try {
-            const parts = data.split(/\|\||--/g);
-            let channel: string;
-            let ts: string;
+    try {
+        const parts = data.split(/\|\||--/g);
+        let channel: string;
+        let ts: string;
 
-            // get the conversation channel and ts
-            if (parts.length >= 2) {
-                [channel, ts] = parts.slice(0,2);
-            }
-
-            return {
-                conversationMsg: new SlackMessageId(channel, ts),
-                notificationChannel: undefined
-            }
-        } catch (e) {
-            logger("Received invalid request ID - could not parse.");
-            return {
-                conversationMsg: undefined,
-                notificationChannel: undefined
-            };
+        // get the conversation channel and ts
+        if (parts.length >= 2) {
+            [channel, ts] = parts.slice(0, 2);
         }
+
+        return {
+            conversationMsg: new SlackMessageId(channel, ts),
+            notificationChannel: undefined
+        }
+    } catch (e) {
+        logger("Received invalid request ID - could not parse.");
+        return {
+            conversationMsg: undefined,
+            notificationChannel: undefined
+        };
+    }
 }
 
 /**
@@ -165,3 +167,34 @@ export function getIssueState(ticket: JiraTicket, config: ModuleConfig): Request
         return RequestState.unknown;
     }
 };
+
+
+/**
+ * For a given string, this will find all slack user IDs in the form <@{ID}>
+ *     and replace with the actual name of the user (if found).
+ * @param msg The message to search for slack user IDs in.
+ * @return The message with replacements made.
+ */
+export async function replaceSlackUserIdsWithNames(msg: string): Promise<string> {
+    const ids: Record<string, any> = {};
+    for (const m of msg.matchAll(/<@(?<id>[A-Z0-9]*)>/gi)) {
+        ids[m.groups.id] = "";
+    }
+
+    const replacements: Record<string, any> = {};
+    if (Object.keys(ids).length > 0) {
+        await Promise.all(Object.keys(ids).map(async (id) => {
+            return Actor.getSlackUserDataFromSlackId(id)
+                .then((user) => {
+                    replacements[`<@${id}>`] = getNestedVal(user, "real_name");
+                })
+                .catch((e) => {
+                    logger("Unable to get slack user for ID " + id + ": " + e.toString());
+                });
+        }));
+
+        return replaceAll(msg, replacements);
+    }
+
+    return msg;
+}

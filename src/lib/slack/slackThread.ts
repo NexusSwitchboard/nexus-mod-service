@@ -1,7 +1,7 @@
 import {SlackMessageId} from "./slackMessageId";
 import {logger} from "../../index";
 import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
-import {RequestState} from "../request";
+import {IRequestParams, RequestState} from "../request";
 import {JiraTicket, JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection, SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import {createEncodedSlackData, getIssueState, iconFromState, replaceAll} from "../util";
@@ -170,9 +170,9 @@ export class SlackThread {
         //  latter because it's slow to pull a full list of replies from the thread just to get the first one.  At
         //  the time of writing this, it was not possible to return just the first reply (grrr..).
         this.actionMessageId = new SlackMessageId(this.channel, botProps.actionMsgId);
-        this._reporter = new Actor({slackUserId: botProps.reporterSlackId});
-        this._claimer = new Actor({slackUserId: botProps.claimerSlackId});
-        this._closer = new Actor({slackUserId: botProps.closerSlackId});
+        this.reporter = new Actor({slackUserId: botProps.reporterSlackId});
+        this.claimer = new Actor({slackUserId: botProps.claimerSlackId});
+        this.closer = new Actor({slackUserId: botProps.closerSlackId});
         this.notificationChannel = botProps.notificationChannelId;
     }
 
@@ -226,9 +226,23 @@ export class SlackThread {
         });
     }
 
-    public async update(params: ThreadUpdateParams) {
-        await this.updateTopLevelMessage(params.message, params.actor);
-        // await this.updateActionBar();
+    /**
+     * Updates the thread with the most recently known information about the status of the request.
+     * @param lastActiveActor
+     * @param customMsg
+     */
+    public async update(customMsg?: string) {
+        const blocks = this.buildTextBlocks(customMsg, true);
+        const plainText = this.buildPlainTextString(customMsg);
+
+        // the source request was an APP post which means we can update it without extra permissions.
+        await this.slack.apiAsBot.chat.update({
+            channel: this.channel,
+            ts: this.ts,
+            as_user: true,
+            text: plainText,
+            blocks
+        });
     }
 
     /**
@@ -378,21 +392,6 @@ export class SlackThread {
         return undefined;
     }
 
-    public async updateTopLevelMessage(msg?: string, actor?: Actor) {
-
-        const blocks = this.buildTextBlocks(msg, true, actor);
-        const plainText = this.buildPlainTextString(msg, actor);
-
-        // the source request was an APP post which means we can update it without extra permissions.
-        await this.slack.apiAsBot.chat.update({
-            channel: this.channel,
-            ts: this.ts,
-            as_user: true,
-            text: plainText,
-            blocks
-        });
-    }
-
     protected getSectionBlockFromText(sectionTitle: string, fields?: (PlainTextElement | MrkdwnElement)[]): (KnownBlock | Block) {
         return {
             type: "section",
@@ -425,7 +424,7 @@ export class SlackThread {
      * @param compact
      * @param actor
      */
-    public buildTextBlocks(customMsg: string, compact: boolean, actor?: Actor): (KnownBlock | Block)[] {
+    public buildTextBlocks(customMsg?: string, compact?: boolean): (KnownBlock | Block)[] {
 
         const blocks: (KnownBlock | Block)[] = [];
 
@@ -436,7 +435,7 @@ export class SlackThread {
         let description = "";
         if (this.ticket) {
 
-            const fields = this.getParticipantsAsFields(actor);
+            const fields = this.getParticipantsAsFields();
             fields.push(this.getPriorityField());
             fields.push(this.getComponentField());
 
@@ -605,7 +604,7 @@ export class SlackThread {
         return [];
     }
 
-    public buildPlainTextString(customMsg: string, actor: Actor): string {
+    public buildPlainTextString(customMsg?: string): string {
 
         const lines: string[] = [];
 
@@ -617,7 +616,7 @@ export class SlackThread {
         }
 
         // This takes the fields and converts them to flat text.
-        const participants = this.getParticipantsAsFields(actor);
+        const participants = this.getParticipantsAsFields();
         participants.forEach((p) => {
             lines.push(p.text)
         });
@@ -657,7 +656,11 @@ export class SlackThread {
         }
     }
 
-
+    /**
+     * SLACK WIDGET
+     * Assembles the priority field block so that it shows the accurate state of the
+     * ticket's priority.
+     */
     private getPriorityField(): (MrkdwnElement | PlainTextElement) {
 
         const jiraPriority = getNestedVal(this.ticket, "fields.priority");
@@ -683,6 +686,11 @@ export class SlackThread {
         }
     }
 
+    /**
+     * SLACK WIDGET
+     * Assembles the priority field block so that it shows the accurate state of the
+     * ticket's priority.
+     */
     private getComponentField(): (MrkdwnElement | PlainTextElement) {
 
         const components = getNestedVal(this.ticket, "fields.components");
@@ -703,12 +711,13 @@ export class SlackThread {
     }
 
     /**
+     * SLACK WIDGET
+     *
      * This will take information about the slack or Jira user that performed the last action
      * and combine that with the known reporter of the issue to return two at most two field objects
      * that can be displayed as part of the top level issue message.
-     * @param actor
      */
-    private getParticipantsAsFields(actor: Actor): (MrkdwnElement | PlainTextElement)[] {
+    private getParticipantsAsFields(): (MrkdwnElement | PlainTextElement)[] {
 
         const fields: (MrkdwnElement | PlainTextElement)[] = [];
         if (this.reporter) {
@@ -721,29 +730,113 @@ export class SlackThread {
             );
         }
 
-        if (actor) {
-            const state = getIssueState(this.ticket, this.config);
-            const userStr = actor.getBestUserStringForSlack();
+        const state = getIssueState(this.ticket, this.config);
+        //const userStr = actor.getBestUserStringForSlack();
 
-            if (state === RequestState.claimed) {
-                fields.push({
-                    type: "mrkdwn",
-                    text: `*Claimed by*\n ${userStr}`
-                });
-            } else if (state === RequestState.complete) {
-                fields.push({
-                    type: "mrkdwn",
-                    text: `*Completed by*\n ${userStr}`
-                });
-            } else if (state === RequestState.cancelled) {
-                fields.push({
-                    type: "mrkdwn",
-                    text: `*Cancelled by*\n ${userStr}`
-                });
-            }
+        if (state === RequestState.claimed) {
+            const userStr = this.claimer.getBestUserStringForSlack();
+            fields.push({
+                type: "mrkdwn",
+                text: `*Claimed by*\n ${userStr}`
+            });
+        } else if (state === RequestState.complete) {
+            const userStr = this.closer.getBestUserStringForSlack();
+
+            fields.push({
+                type: "mrkdwn",
+                text: `*Completed by*\n ${userStr}`
+            });
+        } else if (state === RequestState.cancelled) {
+            const userStr = this.closer.getBestUserStringForSlack();
+
+            fields.push({
+                type: "mrkdwn",
+                text: `*Cancelled by*\n ${userStr}`
+            });
         }
 
         return fields;
+    }
+
+
+    public getRequestReplyMsgBlocks(params: IRequestParams): SlackPayload {
+
+        const infoMsg = ":information_source: Use this thread to communicate about the request.  " +
+            "Note that all of these comments will be recorded as comments on the associated Jira Ticket."
+
+        const description = params.description ? "> " + SlackThread.getIndentedDescription(params.description) : "";
+        const blocks: any = [{
+            type: "section",
+            block_id: "request_description",
+            text: {
+                type: "mrkdwn",
+                text: description ? "*Request Description*\n" + description : "_No description given_"
+            }
+        }, {type: "divider"}];
+
+        const priorityInfo = moduleInstance.lookupPriorityByJiraId(params.priority);
+        if (priorityInfo && priorityInfo.triggersPagerDuty) {
+            blocks.push({
+                type: "section",
+                block_id: "high_priority_warning",
+                text: {
+                    type: "mrkdwn",
+                    text: this.config.REQUEST_HIGH_PRIORITY_MSG
+                }
+            })
+            blocks.push({
+                type: "actions",
+                block_id: "infra_request_actions",
+                elements: [{
+                    type: "button",
+                    text: {
+                        type: "plain_text",
+                        text: this.config.REQUEST_ON_CALL_BUTTON_NAME
+                    },
+                    value: "page_request",
+                    action_id: "page_request",
+                    style: "danger"
+                }]
+            });
+        } else {
+            blocks.push({
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: infoMsg
+                }
+            })
+        }
+
+        return blocks;
+    }
+
+
+    public static postTransitionMessage(interactionPayload: SlackPayload, msg: string) {
+        moduleInstance.getSlack().sendMessageResponse(interactionPayload, {
+            replace_original: true,
+            blocks: [
+                {
+                    type: "context",
+                    elements: [
+                        {
+                            type: "mrkdwn",
+                            text: msg
+                        }
+                    ]
+                }
+            ]
+        });
+    }
+
+    /**
+     * Analyzes a message payload and determine if it's a bot message from the given App ID.  If no
+     * bot id is given then it just returns whether it's a bot message.
+     * @param msg
+     * @param specificBotname
+     */
+    public static isBotMessage(msg: SlackPayload, specificBotname?: string) {
+        return msg.bot_profile && (!specificBotname || specificBotname === msg.bot_profile.name);
     }
 
 }

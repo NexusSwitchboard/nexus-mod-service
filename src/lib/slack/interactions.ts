@@ -7,10 +7,15 @@ import {
 } from "@nexus-switchboard/nexus-conn-slack";
 
 import assert from "assert";
-import { findNestedProperty, findProperty, getNestedVal } from "@nexus-switchboard/nexus-extend";
 import { logger } from "../..";
-import ServiceRequest from "../../lib/request";
-import moduleInstance from "../.."
+import {
+    ACTION_MODAL_SUBMISSION,
+    ACTION_MODAL_REQUEST,
+    ACTION_CANCEL_REQUEST,
+    ACTION_COMPLETE_REQUEST,
+    ACTION_PAGE_REQUEST, ACTION_CLAIM_REQUEST
+} from "../flows";
+import {FlowOrchestrator} from "../flows/orchestrator";
 
 export const interactions: ISlackInteractionHandler[] = [{
     /************
@@ -32,78 +37,43 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// CLAIM
         if (slackParams.actions[0].value === "claim_request") {
-            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
-                .then((request) => {
-                    return request.claim();
-                })
+            FlowOrchestrator.slackActionEntryPoint(ACTION_CLAIM_REQUEST, slackParams)
                 .catch((err) => {
                     logger(`Failed to claim request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
                 });
-
-            ServiceRequest.postTransitionMessage(slackParams, "Claiming request...");
         }
 
         ////////// CANCEL
         if (slackParams.actions[0].value === "cancel_request") {
-            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
-                .then((request) => {
-                    return request.cancel();
-                })
-                .then((_success) => {
-                    logger(`Successfully cancelled request for message ${slackParams.message.thread_ts}`);
-                })
+            FlowOrchestrator.slackActionEntryPoint(ACTION_CANCEL_REQUEST, slackParams)
                 .catch((err) => {
                     logger(`Failed to cancel request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
                 });
 
-            ServiceRequest.postTransitionMessage(slackParams, "Cancelling request...");
+            // ServiceRequest.postTransitionMessage(slackParams, "Cancelling request...");
         }
 
         ////////// COMPLETE
         if (slackParams.actions[0].value === "complete_request") {
-            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
-                .then((request) => {
-                    return request.complete();
-                })
-                .catch((err: Error) => {
-                    logger(`Failed to complete request for message ${slackParams.message.thread_ts}. ` +
+            FlowOrchestrator.slackActionEntryPoint(ACTION_COMPLETE_REQUEST, slackParams)
+                .catch((err) => {
+                    logger(`Failed to complete request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
                 });
 
-            ServiceRequest.postTransitionMessage(slackParams, "Completing request...");
+            // ServiceRequest.postTransitionMessage(slackParams, "Completing request...");
         }
 
         ////////// PAGE ON-CALL BUTTON
         if (slackParams.actions[0].value === "page_request") {
-            ServiceRequest.loadThreadFromSlackEvent(slackParams.user.id, slackParams.channel.id, slackParams.message.thread_ts)
-                .then((request) => {
-                    return request.createPagerDutyAlert(slackParams).catch((e) => {
-                        logger("Exception thrown when trying to send pager duty alert: " + e.toString());
-                    });
-                })
+
+            FlowOrchestrator.slackActionEntryPoint(ACTION_PAGE_REQUEST, slackParams)
                 .catch((err: Error) => {
                     logger(`Failed to send pager duty request for message ${slackParams.message.thread_ts}. ` +
                         `Error: ${err.toString()}`);
                 });
-
-            const newBlocks = slackParams.message.blocks.filter((b:any)=>{
-                return (b.block_id === "request_description" ||
-                        b.block_id === "high_priority_warning")
-            });
-            newBlocks.push({
-                type: "section",
-                block_id: "page_request_completed",
-                text: {
-                    type: "mrkdwn",
-                    text: moduleInstance.getActiveModuleConfig().REQUEST_ON_CALL_PRESSED_MSG
-                }
-            })
-            moduleInstance.getSlack().sendMessageResponse(slackParams, {
-                replace_original: true,
-                blocks: newBlocks
-            });
         }
 
         return {
@@ -118,11 +88,8 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: { callbackId: "submit_request" },
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        const slackUserId = findNestedProperty(slackParams, "user", "id");
-        const channel = findNestedProperty(slackParams, "channel", "id");
-        const text = _conn.extractTextFromPayload(slackParams).join("");
 
-        ServiceRequest.startNewRequest(slackUserId, channel, text, slackParams.trigger_id)
+        FlowOrchestrator.slackActionEntryPoint(ACTION_MODAL_REQUEST, slackParams)
             .catch((e) => {
                 logger("Failed to start detail collection: " + e.toString());
             });
@@ -139,18 +106,9 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: { callbackId: "submit_request" },
     type: SlackInteractionType.shortcut,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        const modConfig = moduleInstance.getActiveModuleConfig();
-        const channel = modConfig.SLACK_PRIMARY_CHANNEL;
 
-        if (channel) {
-            const slackUserId = findNestedProperty(slackParams, "user", "id");
-            ServiceRequest.startNewRequest(slackUserId, channel, "", slackParams.trigger_id)
-                .catch((e) => {
-                    logger("Failed to start detail collection after global shortcut initiated: " + e.toString());
-                });
-        } else {
-            logger("Failed to start global shortcut because a primary channel ID has not been set in config");
-        }
+        FlowOrchestrator.slackActionEntryPoint(ACTION_MODAL_REQUEST, slackParams)
+            .catch(e=>logger(`Failed to start detail collection: ${e.toString()}`))
 
         return {
             code: 200
@@ -165,34 +123,14 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: "infra_request_modal",
     type: SlackInteractionType.viewSubmission,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
+        FlowOrchestrator.slackActionEntryPoint(ACTION_MODAL_SUBMISSION, slackParams).catch((e) => {
+            logger("Request creation failed: " + e.toString());
+        });
 
-        const values = {
-            summary: getNestedVal(slackParams, "view.state.values.title_input.title.value"),
-            description: getNestedVal(slackParams, "view.state.values.description_input.description.value"),
-            priority: getNestedVal(slackParams, "view.state.values.priority_input.priority.selected_option.value"),
-            category: getNestedVal(slackParams, "view.state.values.category_input.category.selected_option.value")
+        return {
+            code: 200,
+            response_action: "clear"
         };
-
-        const channelId = findProperty(slackParams, "private_metadata");
-        if (channelId) {
-            const userId = findNestedProperty(slackParams, "user", "id");
-
-            ServiceRequest.finishRequestCreation(userId, channelId, values).catch((e) => {
-                logger("Request creation failed: " + e.toString());
-            });
-
-            return {
-                code: 200,
-                response_action: "clear"
-            };
-        } else {
-            logger("Unable to continue with infra request because there was a " +
-                "problem finding the source channel and message that invoked the request.");
-
-            return {
-                code: 200
-            };
-        }
     }
 }, {
     /************

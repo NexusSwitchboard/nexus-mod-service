@@ -1,8 +1,8 @@
-import { IWebhookPayload, WebhookConfiguration } from "atlassian-addon-helper";
-import { getNestedVal, ModuleConfig } from "@nexus-switchboard/nexus-extend";
-import ServiceRequest from "../request";
-import { JiraIssueSidecarData } from "../slack/slackThread";
-import serviceMod, { logger } from "../../index";
+import {IWebhookPayload, WebhookConfiguration} from "atlassian-addon-helper";
+import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import serviceMod, {logger} from "../../index";
+import {FlowOrchestrator} from "../flows/orchestrator";
+import {ACTION_TICKET_CHANGED} from "../flows";
 
 export default (config: ModuleConfig): WebhookConfiguration[] => {
 
@@ -32,6 +32,10 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                 //  not we have to make a separate request to get them.
                 let prop = getNestedVal(payload, "issue.properties");
                 if (!prop) {
+
+                    //
+                    // MAKE JIRA REQUEST TO GET CUSTOM PROPERTIES
+                    //
                     const jiraApi = serviceMod.getJira().api;
                     prop = await jiraApi.issueProperties.getIssueProperty({
                         issueIdOrKey: payload.issue.key,
@@ -43,6 +47,10 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                     }
 
                 } else {
+
+                    //
+                    // USE GIVEN CUSTOM PROPERTIES
+                    //
                     if (prop.infrabot) {
                         prop = prop.infrabot;
                     } else {
@@ -59,7 +67,7 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                 const changes = payload.changelog.items;
                 let doUpdate = false;
                 changes.forEach((c: any) => {
-                    if (["status", "summary","description", "assignee"].indexOf(c.field) >= 0) {
+                    if (["status", "summary", "description", "assignee"].indexOf(c.field) >= 0) {
                         doUpdate = true;
                     }
                 });
@@ -68,12 +76,9 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                     return false;
                 }
 
-                const info:JiraIssueSidecarData = prop;
-                const request = await ServiceRequest.loadThreadFromJiraEvent(info,payload);
-                if (request) {
-                    await request.updateSlackThread();
-                    return true;
-                }
+                FlowOrchestrator.jiraActionEntryPoint(ACTION_TICKET_CHANGED, payload, prop).catch((e) => {
+                    logger("Unable to handle ticket changed action: " + e.toString())
+                });
 
                 logger("Unable to create a request thread object from the event data");
                 return false;
