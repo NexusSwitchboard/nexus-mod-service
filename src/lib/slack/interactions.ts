@@ -15,7 +15,7 @@ import {
     ACTION_COMPLETE_REQUEST,
     ACTION_PAGE_REQUEST, ACTION_CLAIM_REQUEST
 } from "../flows";
-import {FlowOrchestrator} from "../flows/orchestrator";
+import Orchestrator from "../flows/orchestrator";
 
 export const interactions: ISlackInteractionHandler[] = [{
     /************
@@ -37,7 +37,7 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// CLAIM
         if (slackParams.actions[0].value === "claim_request") {
-            FlowOrchestrator.slackActionEntryPoint(ACTION_CLAIM_REQUEST, slackParams)
+            Orchestrator.entryPoint(ACTION_CLAIM_REQUEST, slackParams)
                 .catch((err) => {
                     logger(`Failed to claim request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
@@ -46,7 +46,7 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// CANCEL
         if (slackParams.actions[0].value === "cancel_request") {
-            FlowOrchestrator.slackActionEntryPoint(ACTION_CANCEL_REQUEST, slackParams)
+            Orchestrator.entryPoint(ACTION_CANCEL_REQUEST, slackParams)
                 .catch((err) => {
                     logger(`Failed to cancel request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
@@ -57,7 +57,7 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// COMPLETE
         if (slackParams.actions[0].value === "complete_request") {
-            FlowOrchestrator.slackActionEntryPoint(ACTION_COMPLETE_REQUEST, slackParams)
+            Orchestrator.entryPoint(ACTION_COMPLETE_REQUEST, slackParams)
                 .catch((err) => {
                     logger(`Failed to complete request for message ${slackParams.message.thread_ts}` +
                         `Error: ${err.toString()}`);
@@ -69,7 +69,7 @@ export const interactions: ISlackInteractionHandler[] = [{
         ////////// PAGE ON-CALL BUTTON
         if (slackParams.actions[0].value === "page_request") {
 
-            FlowOrchestrator.slackActionEntryPoint(ACTION_PAGE_REQUEST, slackParams)
+            Orchestrator.entryPoint(ACTION_PAGE_REQUEST, slackParams)
                 .catch((err: Error) => {
                     logger(`Failed to send pager duty request for message ${slackParams.message.thread_ts}. ` +
                         `Error: ${err.toString()}`);
@@ -89,7 +89,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-        FlowOrchestrator.slackActionEntryPoint(ACTION_MODAL_REQUEST, slackParams)
+        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams)
             .catch((e) => {
                 logger("Failed to start detail collection: " + e.toString());
             });
@@ -107,7 +107,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     type: SlackInteractionType.shortcut,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-        FlowOrchestrator.slackActionEntryPoint(ACTION_MODAL_REQUEST, slackParams)
+        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams)
             .catch(e=>logger(`Failed to start detail collection: ${e.toString()}`))
 
         return {
@@ -123,7 +123,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: "infra_request_modal",
     type: SlackInteractionType.viewSubmission,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        FlowOrchestrator.slackActionEntryPoint(ACTION_MODAL_SUBMISSION, slackParams).catch((e) => {
+        Orchestrator.entryPoint(ACTION_MODAL_SUBMISSION, slackParams).catch((e) => {
             logger("Request creation failed: " + e.toString());
         });
 

@@ -15,6 +15,9 @@ import {interactions} from "./lib/slack/interactions";
 import loadWebhooks from "./lib/jira/webhooks";
 import configRules from "./lib/config";
 import assert from "assert";
+import Orchestrator from "./lib/flows/orchestrator";
+import {IntakeFlow} from "./lib/flows/builtin";
+import {ClaimFlow} from "./lib/flows/claim";
 
 
 export {IServiceApproval, IServiceApprovalConfig} from "./lib/approval";
@@ -49,6 +52,9 @@ export class ServiceModule extends NexusModule {
     public async initialize(active: INexusActiveModule): Promise<boolean> {
 
         if (await super.initialize(active)) {
+            Orchestrator.addFlow(new IntakeFlow());
+            Orchestrator.addFlow(new ClaimFlow());
+
             await this.loadJiraProjectComponents();
             await this.loadJiraPriorities();
             return true;

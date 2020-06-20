@@ -1,7 +1,7 @@
 import {ISlackAckResponse, SlackSubCommandList} from "@nexus-switchboard/nexus-conn-slack";
 import {logger} from "../..";
 import {ACTION_MODAL_REQUEST} from "../flows";
-import {FlowOrchestrator} from "../flows/orchestrator";
+import Orchestrator from "../flows/orchestrator";
 
 // Reference: Slack Slash Commands: https://api.slack.com/interactivity/slash-commands
 
@@ -9,7 +9,7 @@ export const requestSubcommands: SlackSubCommandList = {
 
     default: async (_conn, textWithoutAction, slackParams): Promise<ISlackAckResponse> => {
 
-        FlowOrchestrator.slackActionEntryPoint(ACTION_MODAL_REQUEST, slackParams, {
+        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams, {
             defaultText: textWithoutAction
         })
             .catch((e) => {

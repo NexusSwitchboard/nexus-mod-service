@@ -1,4 +1,4 @@
-import ServiceRequest from "../request";
+import {logger} from "../../index";
 
 export type FlowAction = string;
 export const ACTION_MODAL_REQUEST: FlowAction = "modal_request";
@@ -10,55 +10,59 @@ export const ACTION_COMMENT_ON_REQUEST: FlowAction = "comment_on_request";
 export const ACTION_PAGE_REQUEST: FlowAction = "page_request";
 export const ACTION_TICKET_CHANGED: FlowAction = "jira_ticket_changed";
 
-export type FlowState = string;
-export const STATE_UNKNOWN: FlowState = "unknown";
-export const STATE_NO_TICKET: FlowState = "no_ticket";
-export const STATE_MID_TICKET_SUBMISSION: FlowState = "mid_ticket_submission";
-export const STATE_NOT_STARTED: FlowState = "not_started";
-export const STATE_COMPLETED_SUCCESS: FlowState = "completed_successfully";
-export const STATE_COMPLETED_FAILED: FlowState = "completed_with_failure";
-
 export abstract class ServiceFlow {
 
-    lastState: FlowState;
-    currentState: FlowState;
-    request: ServiceRequest;
-
-    public constructor(request: ServiceRequest) {
-        this.currentState = this._getStateFromRequest(request);
-        this.request = request;
-    }
-
     /**
-     * Call this to move the state of the flow from one to another. This will
-     * call a derived class version of the function but will handle the state
-     * setting once the change has been completed successfully.
-     * @param previousState
-     * @param newState
+     * Handles the reaction to an action performed by the user through one of the flow clients (e.g. Slack).
+     * @param action
+     * @param payload
+     * @param additionalData
      */
-    public changeState(previousState: FlowState, newState: FlowState) {
-        if (this._changeState(previousState, newState)) {
-            this.lastState = this.currentState;
-            this.currentState = newState;
+    public async handleAction(action: FlowAction, payload: any, additionalData: any): Promise<boolean> {
+
+        if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
+            if (this._handleActionImmediateResponse(action, payload, additionalData)) {
+                return this._handleActionSlowResponse(action, payload, additionalData).catch((e) => {
+                    logger("Failed to handle slow response: " + e.toString());
+                    return false;
+                });
+            }
         }
+
+        return true;
     }
 
     /**
-     * Override this to do the work of changing state (without actually altering the
-     * state variables (this.lastState and this.currentState) - that will be taken care of by
-     * this base class.
-     * @param previousState
-     * @param newState
-     * @private
+     * Gets a list of the actions that this flow supports.
      */
-    protected abstract _changeState (previousState: FlowState, newState: FlowState): boolean;
+    protected abstract _getFlowActions(payload: any, additionalData: any): FlowAction[];
 
     /**
-     * Override this to set the starting state of the class based on the state of the given
-     * request.  The base class will handle the setting of the class's state variables - this just needs
-     * to return the state based on the information gathered in the request object.
-     * @param request
+     * _handleAction is meant to be overridden to perform the necessary *post-response* steps.  That is, the
+     * steps that can be taken without any significant restriction on time limits.  For example, trigger_id based
+     * responses must happen within 3 seconds of initial trigger.  _handleAction is NOT where this should happen. Instead
+     * it should happen within the _handleImmediateResponse method.
+     *
+     * Return true to continue with next action, false otherwise.
+     *
+     * @param action
+     * @param payload
+     * @param additionalData
      * @private
      */
-    protected abstract _getStateFromRequest(request: ServiceRequest): FlowState;
+    protected abstract async _handleActionSlowResponse(action: FlowAction, payload: any, additionalData: any): Promise<boolean>;
+
+    /**
+     * _handleActionImmediateResponse is meant to be overridden to perform the necessary actions that must be
+     * performed within a very short time limit.  This can be assumed to be happening without any previous await calls
+     * so that things that rely on short-lived triggers (for example) can be safely done here.
+     *
+     * Return true to continue with action, false otherwise.
+     * @param action
+     * @param payload
+     * @param additionalData
+     * @private
+     */
+    protected abstract _handleActionImmediateResponse(action: FlowAction, payload: any, additionalData: any): boolean;
+
 }

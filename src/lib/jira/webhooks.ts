@@ -1,7 +1,7 @@
 import {IWebhookPayload, WebhookConfiguration} from "atlassian-addon-helper";
 import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
 import serviceMod, {logger} from "../../index";
-import {FlowOrchestrator} from "../flows/orchestrator";
+import Orchestrator from "../flows/orchestrator";
 import {ACTION_TICKET_CHANGED} from "../flows";
 
 export default (config: ModuleConfig): WebhookConfiguration[] => {
@@ -76,7 +76,7 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                     return false;
                 }
 
-                FlowOrchestrator.jiraActionEntryPoint(ACTION_TICKET_CHANGED, payload, prop).catch((e) => {
+                Orchestrator.entryPoint(ACTION_TICKET_CHANGED, payload, prop).catch((e) => {
                     logger("Unable to handle ticket changed action: " + e.toString())
                 });
 
