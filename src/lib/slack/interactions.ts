@@ -7,7 +7,6 @@ import {
 } from "@nexus-switchboard/nexus-conn-slack";
 
 import assert from "assert";
-import { logger } from "../..";
 import {
     ACTION_MODAL_SUBMISSION,
     ACTION_MODAL_REQUEST,
@@ -27,7 +26,8 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: { blockId: "infra_request_actions" },
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        assert(slackParams.actions && slackParams.actions.length > 0, "Received slack action event but actions array appears to be empty");
+        assert(slackParams.actions && slackParams.actions.length > 0,
+            "Received slack action event but actions array appears to be empty");
 
         if (slackParams.actions[0].value === "view_request") {
             return {
@@ -37,43 +37,22 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// CLAIM
         if (slackParams.actions[0].value === "claim_request") {
-            Orchestrator.entryPoint(ACTION_CLAIM_REQUEST, slackParams)
-                .catch((err) => {
-                    logger(`Failed to claim request for message ${slackParams.message.thread_ts}` +
-                        `Error: ${err.toString()}`);
-                });
+            Orchestrator.entryPoint(ACTION_CLAIM_REQUEST, slackParams);
         }
 
         ////////// CANCEL
         if (slackParams.actions[0].value === "cancel_request") {
-            Orchestrator.entryPoint(ACTION_CANCEL_REQUEST, slackParams)
-                .catch((err) => {
-                    logger(`Failed to cancel request for message ${slackParams.message.thread_ts}` +
-                        `Error: ${err.toString()}`);
-                });
-
-            // ServiceRequest.postTransitionMessage(slackParams, "Cancelling request...");
+            Orchestrator.entryPoint(ACTION_CANCEL_REQUEST, slackParams);
         }
 
         ////////// COMPLETE
         if (slackParams.actions[0].value === "complete_request") {
-            Orchestrator.entryPoint(ACTION_COMPLETE_REQUEST, slackParams)
-                .catch((err) => {
-                    logger(`Failed to complete request for message ${slackParams.message.thread_ts}` +
-                        `Error: ${err.toString()}`);
-                });
-
-            // ServiceRequest.postTransitionMessage(slackParams, "Completing request...");
+            Orchestrator.entryPoint(ACTION_COMPLETE_REQUEST, slackParams);
         }
 
         ////////// PAGE ON-CALL BUTTON
         if (slackParams.actions[0].value === "page_request") {
-
-            Orchestrator.entryPoint(ACTION_PAGE_REQUEST, slackParams)
-                .catch((err: Error) => {
-                    logger(`Failed to send pager duty request for message ${slackParams.message.thread_ts}. ` +
-                        `Error: ${err.toString()}`);
-                });
+            Orchestrator.entryPoint(ACTION_PAGE_REQUEST, slackParams);
         }
 
         return {
@@ -89,10 +68,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams)
-            .catch((e) => {
-                logger("Failed to start detail collection: " + e.toString());
-            });
+        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams);
 
         return {
             code: 200
@@ -106,10 +82,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: { callbackId: "submit_request" },
     type: SlackInteractionType.shortcut,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-
-        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams)
-            .catch(e=>logger(`Failed to start detail collection: ${e.toString()}`))
-
+        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams);
         return {
             code: 200
         };
@@ -123,9 +96,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: "infra_request_modal",
     type: SlackInteractionType.viewSubmission,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        Orchestrator.entryPoint(ACTION_MODAL_SUBMISSION, slackParams).catch((e) => {
-            logger("Request creation failed: " + e.toString());
-        });
+        Orchestrator.entryPoint(ACTION_MODAL_SUBMISSION, slackParams);
 
         return {
             code: 200,

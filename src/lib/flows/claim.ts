@@ -4,8 +4,8 @@ import {
     ACTION_CLAIM_REQUEST,
     ACTION_COMMENT_ON_REQUEST,
     ACTION_COMPLETE_REQUEST,
-    ACTION_PAGE_REQUEST,
-    FlowAction,
+    ACTION_PAGE_REQUEST, FLOW_CONTINUE,
+    FlowAction, FlowBehavior,
     ServiceFlow
 } from ".";
 
@@ -21,7 +21,7 @@ export class ClaimFlow extends ServiceFlow {
             ACTION_PAGE_REQUEST]
     }
 
-    protected _handleActionSlowResponse(action: FlowAction, payload: any, _additionalData: any) {
+    protected _handleAsyncResponse(action: FlowAction, payload: any, _additionalData: any) {
 
         // The location of the timestamp, channel and user data vary depending on whether a regular event
         //  was received (as in a message was posted to a channel) or an interaction event occurred (as in a user
@@ -53,7 +53,7 @@ export class ClaimFlow extends ServiceFlow {
             });
     }
 
-    public _handleActionImmediateResponse(action: FlowAction, payload: any, _additionalData: any): boolean {
+    public _handleSyncResponse(action: FlowAction, payload: any, _additionalData: any): FlowBehavior {
 
         if (action === ACTION_PAGE_REQUEST) {
             // This action is triggered by a user clicking on a button in a
@@ -78,7 +78,7 @@ export class ClaimFlow extends ServiceFlow {
             });
         }
 
-        return true;
+        return FLOW_CONTINUE;
     }
 
 }

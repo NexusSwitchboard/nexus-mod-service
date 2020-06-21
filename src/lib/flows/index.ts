@@ -10,6 +10,16 @@ export const ACTION_COMMENT_ON_REQUEST: FlowAction = "comment_on_request";
 export const ACTION_PAGE_REQUEST: FlowAction = "page_request";
 export const ACTION_TICKET_CHANGED: FlowAction = "jira_ticket_changed";
 
+export type FlowBehavior = string;
+export const FLOW_CONTINUE = "flow_continue";
+
+// Flow halt is used when there should be no more activity - even within the same action handler.
+export const FLOW_HALT = "flow_halt";
+
+// Flow last step is used when the current step MUST be the last.  So it will handle the slow response
+//  but it will stop after that.
+export const FLOW_LAST_STEP = "flow_last_step";
+
 export abstract class ServiceFlow {
 
     /**
@@ -18,18 +28,31 @@ export abstract class ServiceFlow {
      * @param payload
      * @param additionalData
      */
-    public async handleAction(action: FlowAction, payload: any, additionalData: any): Promise<boolean> {
+    public async handleAsyncAction(action: FlowAction, payload: any, additionalData: any): Promise<FlowBehavior> {
 
+        let flowBehavior = FLOW_CONTINUE;
         if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
-            if (this._handleActionImmediateResponse(action, payload, additionalData)) {
-                return this._handleActionSlowResponse(action, payload, additionalData).catch((e) => {
-                    logger("Failed to handle slow response: " + e.toString());
-                    return false;
-                });
-            }
+            this._handleAsyncResponse(action, payload, additionalData).catch((e) => {
+                logger("Failed to handle slow response: " + e.toString());
+                return false;
+            });
         }
 
-        return true;
+        return flowBehavior;
+    }
+
+    /**
+     * Handle the initial sync response - this must not return a Promise.
+     * @param action
+     * @param payload
+     * @param additionalData
+     */
+    public handleSyncAction(action: FlowAction, payload: any, additionalData: any): FlowBehavior {
+        if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
+            return this._handleSyncResponse(action, payload, additionalData);
+        } else {
+            return FLOW_CONTINUE;
+        }
     }
 
     /**
@@ -50,7 +73,7 @@ export abstract class ServiceFlow {
      * @param additionalData
      * @private
      */
-    protected abstract async _handleActionSlowResponse(action: FlowAction, payload: any, additionalData: any): Promise<boolean>;
+    protected abstract async _handleAsyncResponse(action: FlowAction, payload: any, additionalData: any): Promise<boolean>;
 
     /**
      * _handleActionImmediateResponse is meant to be overridden to perform the necessary actions that must be
@@ -63,6 +86,6 @@ export abstract class ServiceFlow {
      * @param additionalData
      * @private
      */
-    protected abstract _handleActionImmediateResponse(action: FlowAction, payload: any, additionalData: any): boolean;
+    protected abstract _handleSyncResponse(action: FlowAction, payload: any, additionalData: any): FlowBehavior;
 
 }

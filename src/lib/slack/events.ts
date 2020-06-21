@@ -15,10 +15,7 @@ const handlePostedThreadMessage = async (_conn: SlackConnection,
 
     // ignore any message that is posted by a bot.
     if (!SlackThread.isBotMessage(slackParams.message || slackParams)) {
-        // first determine if this is a threaded message.  If it's not there's nothing to do.
-        Orchestrator.entryPoint(ACTION_COMMENT_ON_REQUEST, slackParams).catch((e) => {
-            logger("Comment transfer failed: " + e.toString());
-        });
+        Orchestrator.entryPoint(ACTION_COMMENT_ON_REQUEST, slackParams);
     }
 
     return {

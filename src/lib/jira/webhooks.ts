@@ -76,9 +76,7 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
                     return false;
                 }
 
-                Orchestrator.entryPoint(ACTION_TICKET_CHANGED, payload, prop).catch((e) => {
-                    logger("Unable to handle ticket changed action: " + e.toString())
-                });
+                Orchestrator.entryPoint(ACTION_TICKET_CHANGED, payload, prop);
 
                 logger("Unable to create a request thread object from the event data");
                 return false;

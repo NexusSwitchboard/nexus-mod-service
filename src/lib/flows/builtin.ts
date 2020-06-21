@@ -1,7 +1,7 @@
 import {
     ACTION_MODAL_REQUEST,
-    ACTION_MODAL_SUBMISSION, ACTION_TICKET_CHANGED,
-    FlowAction,
+    ACTION_MODAL_SUBMISSION, ACTION_TICKET_CHANGED, FLOW_CONTINUE,
+    FlowAction, FlowBehavior,
     ServiceFlow
 } from "./index";
 import {findProperty, findNestedProperty, getNestedVal} from "@nexus-switchboard/nexus-extend";
@@ -26,7 +26,7 @@ export class IntakeFlow extends ServiceFlow {
         return [ACTION_MODAL_REQUEST, ACTION_MODAL_SUBMISSION, ACTION_TICKET_CHANGED]
     }
 
-    protected async _handleActionSlowResponse(action: FlowAction, payload: any, additionalData: any): Promise<boolean> {
+    protected async _handleAsyncResponse(action: FlowAction, payload: any, additionalData: any): Promise<boolean> {
         if (action === ACTION_MODAL_REQUEST) {
             return await IntakeFlow.beginRequestCreation(payload, additionalData ? additionalData.defaultText : undefined);
         } else if (action === ACTION_MODAL_SUBMISSION) {
@@ -48,8 +48,8 @@ export class IntakeFlow extends ServiceFlow {
 
     }
 
-    protected _handleActionImmediateResponse(_action: FlowAction, _payload: any, _additionalData: any): boolean {
-        return true;
+    protected _handleSyncResponse(_action: FlowAction, _payload: any, _additionalData: any): FlowBehavior {
+        return FLOW_CONTINUE;
     }
 
 

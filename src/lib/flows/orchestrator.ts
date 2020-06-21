@@ -1,6 +1,6 @@
 import ServiceRequest from "../request";
 import {logger} from "../..";
-import {FlowAction, ServiceFlow} from "./index";
+import {FLOW_CONTINUE, FLOW_HALT, FlowAction, ServiceFlow} from "./index";
 import {SlackMessageId} from "../slack/slackMessageId";
 import {getNestedVal} from "@nexus-switchboard/nexus-extend";
 import {JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
@@ -26,11 +26,20 @@ export class FlowOrchestrator {
      * @param payload
      * @param additionalData
      */
-    public async entryPoint(action: FlowAction, payload: any, additionalData?: any): Promise<void | boolean> {
+    public entryPoint(action: FlowAction, payload: any, additionalData?: any) {
 
         for (let i = 0; i < this.orderedFlows.length; i++) {
             const flow = this.orderedFlows[i];
-            flow.handleAction(action, payload, additionalData).catch((e) => logger(`Failed to handle action ${action}: ${e.toString()}`))
+            const behavior = flow.handleSyncAction(action, payload, additionalData);
+            if (behavior != FLOW_HALT) {
+                // THIS PART IS ASYNCHRONOUS - DO NOT USE AWAIT OR USE THE RETURN VALUE.
+                flow.handleAsyncAction(action,payload, additionalData).catch(
+                    (e) => logger(`Failed to handle action ${action}: ${e.toString()}`));
+            }
+
+            if (behavior != FLOW_CONTINUE) {
+                break;
+            }
         }
 
     }
