@@ -8,7 +8,7 @@ export const requestSubcommands: SlackSubCommandList = {
 
     default: async (_conn, textWithoutAction, slackParams): Promise<ISlackAckResponse> => {
 
-        Orchestrator.entryPoint(ACTION_MODAL_REQUEST, slackParams, {
+        Orchestrator.entryPoint("slack", ACTION_MODAL_REQUEST, slackParams, {
             defaultText: textWithoutAction
         });
 

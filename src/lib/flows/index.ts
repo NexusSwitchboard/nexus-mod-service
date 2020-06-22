@@ -1,3 +1,5 @@
+import ServiceRequest from "../request";
+import {FlowOrchestrator} from "./orchestrator";
 import {logger} from "../../index";
 
 export type FlowAction = string;
@@ -12,48 +14,116 @@ export const ACTION_TICKET_CHANGED: FlowAction = "jira_ticket_changed";
 
 export type FlowBehavior = string;
 export const FLOW_CONTINUE = "flow_continue";
-
-// Flow halt is used when there should be no more activity - even within the same action handler.
 export const FLOW_HALT = "flow_halt";
-
-// Flow last step is used when the current step MUST be the last.  So it will handle the slow response
-//  but it will stop after that.
 export const FLOW_LAST_STEP = "flow_last_step";
+
+export type FlowSource = "jira" | "slack"
+
+export type FlowState = string;
+export const STATE_NO_TICKET: FlowState = "no_ticket";
+export const STATE_TODO: FlowState = "todo";
+export const STATE_ERROR: FlowState = "error";
+export const STATE_UNKNOWN: FlowState = "unknown";
+
+export type FlowAccessType = "allow" | "deny";
+type FlowControl = {
+    [key: string]: {
+        access: FlowAccessType
+    }
+}
 
 export abstract class ServiceFlow {
 
+    protected flowControl: FlowControl;
+
+    public constructor() {
+        this.flowControl = {
+            "**": { access: "allow" }
+        }
+    }
+
+    private static makeControlFlowKey(key: string, action: string) {
+        return (key || "*") + (action || "*");
+    }
+
+    public setControlFlow(key: string, action: string, access: FlowAccessType) {
+        this.flowControl[ServiceFlow.makeControlFlowKey(key,action)] = {access}
+    }
+
+    public getControlFlow(key: string, action: string) {
+        let cf = this.flowControl[ServiceFlow.makeControlFlowKey(key,action)];
+        if (!cf) {
+            cf = this.flowControl[ServiceFlow.makeControlFlowKey(key,"*")]
+            if (!cf) {
+                cf = this.flowControl[ServiceFlow.makeControlFlowKey("*",action)]
+                if (!cf) {
+                    cf = this.flowControl[ServiceFlow.makeControlFlowKey("*","*")]
+
+                }
+            }
+        }
+        return cf ? cf.access : "allow";
+    }
+
     /**
      * Handles the reaction to an action performed by the user through one of the flow clients (e.g. Slack).
+     * @param source
      * @param action
      * @param payload
      * @param additionalData
      */
-    public async handleAsyncAction(action: FlowAction, payload: any, additionalData: any): Promise<FlowBehavior> {
+    public async handleAsyncAction(source: FlowSource, action: FlowAction, payload: any, additionalData: any): Promise<void> {
 
-        let flowBehavior = FLOW_CONTINUE;
-        if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
-            this._handleAsyncResponse(action, payload, additionalData).catch((e) => {
-                logger("Failed to handle slow response: " + e.toString());
-                return false;
-            });
+        // This function will call the derived async response handler but it
+        //  will also ensure that you don't have multiple calls for the same action
+        //  and the same request.
+        const asyncHandler = (request: ServiceRequest) => {
+            const key = request.ticket ? request.ticket.key : undefined;
+            if (this.getControlFlow(key,action) === "allow") {
+                this._handleAsyncResponse(request, action, payload, additionalData)
+                    .finally(() => {});
+            } else {
+                logger(`Action ${action} being performed on ${request.ticket.key} was blocked due to a control flow rule`)
+            }
         }
 
-        return flowBehavior;
+        if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
+
+            if (source === "jira") {
+                // We build a request from a jira event (which has to be done differently
+                //  than with slack events).
+                FlowOrchestrator.buildRequestObFromJiraEvent(payload)
+                    .then(asyncHandler);
+
+            } else if (source === "slack") {
+                // We build a request from a slack event (which has to be done differently
+                //  than with jira events).
+                FlowOrchestrator.buildRequestObFromSlackEvent(payload)
+                    .then(asyncHandler);
+            }
+        }
     }
 
     /**
      * Handle the initial sync response - this must not return a Promise.
+     * @param _source
      * @param action
      * @param payload
      * @param additionalData
      */
-    public handleSyncAction(action: FlowAction, payload: any, additionalData: any): FlowBehavior {
+    public handleSyncAction(_source: FlowSource, action: FlowAction, payload: any, additionalData: any): FlowBehavior {
         if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
             return this._handleSyncResponse(action, payload, additionalData);
         } else {
             return FLOW_CONTINUE;
         }
     }
+
+    /**
+     * Handled by the derived flow and interrogates the given request object to determine its state
+     * in the flow.  If the state is not discernible then the state is not changed.
+     */
+    protected abstract _setRequestState(request: ServiceRequest): FlowState;
 
     /**
      * Gets a list of the actions that this flow supports.
@@ -68,12 +138,13 @@ export abstract class ServiceFlow {
      *
      * Return true to continue with next action, false otherwise.
      *
+     * @param request
      * @param action
      * @param payload
      * @param additionalData
      * @private
      */
-    protected abstract async _handleAsyncResponse(action: FlowAction, payload: any, additionalData: any): Promise<boolean>;
+    protected abstract async _handleAsyncResponse(request: ServiceRequest, action: FlowAction, payload: any, additionalData: any): Promise<void>;
 
     /**
      * _handleActionImmediateResponse is meant to be overridden to perform the necessary actions that must be

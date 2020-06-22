@@ -1,18 +1,15 @@
 import {
     ACTION_MODAL_REQUEST,
-    ACTION_MODAL_SUBMISSION, ACTION_TICKET_CHANGED, FLOW_CONTINUE,
-    FlowAction, FlowBehavior,
-    ServiceFlow
+    ACTION_MODAL_SUBMISSION, ACTION_TICKET_CHANGED, FLOW_CONTINUE, FLOW_LAST_STEP,
+    FlowAction, FlowBehavior, FlowState,
+    ServiceFlow, STATE_NO_TICKET, STATE_TODO
 } from "./index";
 import {findProperty, findNestedProperty, getNestedVal} from "@nexus-switchboard/nexus-extend";
 import moduleInstance, {logger} from "../../index";
-import ServiceRequest, {IRequestParams} from "../request";
+import ServiceRequest, {IRequestParams, ChannelAssignments} from "../request";
 import {SlackMessageId} from "../slack/slackMessageId";
 import RequestModal from "../slack/requestModal";
-import {getMessageFromSlackErr} from "../util";
-import {ChannelAssignments, SlackThread} from "../slack/slackThread";
-import {FlowOrchestrator} from "./orchestrator";
-
+import {getMessageFromSlackErr, noop} from "../util";
 
 /**
  *
@@ -26,32 +23,51 @@ export class IntakeFlow extends ServiceFlow {
         return [ACTION_MODAL_REQUEST, ACTION_MODAL_SUBMISSION, ACTION_TICKET_CHANGED]
     }
 
-    protected async _handleAsyncResponse(action: FlowAction, payload: any, additionalData: any): Promise<boolean> {
+    protected async _handleAsyncResponse(request: ServiceRequest, action: FlowAction, _payload: any, _additionalData: any): Promise<void> {
+        if (action === ACTION_TICKET_CHANGED && request) {
+            request.updateSlackThread().then(noop);
+        }
+        return Promise.resolve();
+    }
+
+    protected _handleSyncResponse(action: FlowAction, payload: any, additionalData: any): FlowBehavior {
         if (action === ACTION_MODAL_REQUEST) {
-            return await IntakeFlow.beginRequestCreation(payload, additionalData ? additionalData.defaultText : undefined);
+
+            const text = additionalData ? additionalData.defaultText : undefined;
+            IntakeFlow.beginRequestCreation(payload, text).then(noop);
+
+            return FLOW_LAST_STEP
+
         } else if (action === ACTION_MODAL_SUBMISSION) {
-            return await IntakeFlow.finishRequestCreation(payload);
-        } else if (action === ACTION_TICKET_CHANGED) {
-            return FlowOrchestrator.buildRequestObFromJiraEvent(additionalData, payload)
-                .then((request: ServiceRequest) => {
-                    if (action === ACTION_TICKET_CHANGED) {
-                        request.updateSlackThread();
-                        return true;
-                    } else {
-                        return false;
-                    }
-                });
-        }
-        else {
-            return false;
+
+            IntakeFlow.finishRequestCreation(payload).then((request) => {
+                request.state = STATE_TODO;
+            });
+
+            return FLOW_LAST_STEP
         }
 
+        return FLOW_CONTINUE
     }
 
-    protected _handleSyncResponse(_action: FlowAction, _payload: any, _additionalData: any): FlowBehavior {
-        return FLOW_CONTINUE;
-    }
+    protected _setRequestState(request: ServiceRequest): FlowState {
 
+        let state: FlowState;
+        if (!request || !request.ticket) {
+            state = STATE_NO_TICKET;
+        } else {
+            const cat: string = getNestedVal(request.ticket, "fields.status.statusCategory.name");
+            if (["undefined", "to do", "new"].indexOf(cat.toLowerCase()) >= 0) {
+                state = STATE_TODO;
+            }
+        }
+
+        if (state) {
+            request.state = state;
+        }
+
+        return undefined;
+    }
 
     /**
      * This static method should be used  when there is no existing thread for the request.  This will
@@ -92,7 +108,7 @@ export class IntakeFlow extends ServiceFlow {
      *          occurred.  This could be the primary channel or another channel in which infrabot was invited.
      * @param payload
      */
-    public static async finishRequestCreation(payload: any): Promise<boolean> {
+    public static async finishRequestCreation(payload: any): Promise<ServiceRequest> {
 
         try {
             const channelId = findProperty(payload, "private_metadata");
@@ -131,16 +147,16 @@ export class IntakeFlow extends ServiceFlow {
                     description: values.description,
                     priority: values.priority,
                     components: [values.category]
-                });
+                })
             } else {
                 logger("Unable to show the create modal because the originating channel could not be found");
-                return false;
             }
 
         } catch (e) {
             logger("There was a problem finishing the infra request submission: " + e.toString());
-            return false;
         }
+
+        return undefined;
     }
 
     /**
@@ -172,7 +188,7 @@ export class IntakeFlow extends ServiceFlow {
      * @param startingChannelId
      */
     protected static identifyChannelAssignments(startingChannelId: string): ChannelAssignments {
-        return SlackThread.determineConversationChannel(startingChannelId,
+        return ServiceRequest.determineConversationChannel(startingChannelId,
             moduleInstance.getActiveModuleConfig().SLACK_PRIMARY_CHANNEL,
             ServiceRequest.config.SLACK_CONVERSATION_RESTRICTION);
     }

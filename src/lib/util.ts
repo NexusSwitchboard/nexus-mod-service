@@ -6,6 +6,8 @@ import {logger} from "../index";
 import {RequestState} from "./request";
 import {Actor} from "./actor";
 
+export const noop = () => {};
+
 /**
  * Given a map of from -> to strings, this will replace all occurrences
  * of each in the given string and return the string with replacements
@@ -166,7 +168,7 @@ export function getIssueState(ticket: JiraTicket, config: ModuleConfig): Request
     } else {
         return RequestState.unknown;
     }
-};
+}
 
 
 /**
@@ -197,4 +199,10 @@ export async function replaceSlackUserIdsWithNames(msg: string): Promise<string>
     }
 
     return msg;
+}
+
+export async function delay(t: number, v?: any) {
+    return new Promise(function(resolve) {
+        setTimeout(resolve.bind(null, v), t)
+    });
 }

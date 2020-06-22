@@ -2,7 +2,7 @@ import {SlackConnection, ISlackAckResponse, SlackEventList, SlackPayload} from "
 import {logger} from "../..";
 import { SlackHomeTab } from "./homeTab";
 import Orchestrator from "../flows/orchestrator";
-import {SlackThread} from "./slackThread";
+import ServiceRequest from "../request";
 import {ACTION_COMMENT_ON_REQUEST} from "../flows";
 
 /**
@@ -14,8 +14,8 @@ const handlePostedThreadMessage = async (_conn: SlackConnection,
                                          slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
     // ignore any message that is posted by a bot.
-    if (!SlackThread.isBotMessage(slackParams.message || slackParams)) {
-        Orchestrator.entryPoint(ACTION_COMMENT_ON_REQUEST, slackParams);
+    if (!ServiceRequest.isBotMessage(slackParams.message || slackParams)) {
+        Orchestrator.entryPoint("slack", ACTION_COMMENT_ON_REQUEST, slackParams);
     }
 
     return {
