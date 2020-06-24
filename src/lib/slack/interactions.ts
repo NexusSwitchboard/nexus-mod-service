@@ -8,13 +8,14 @@ import {
 
 import assert from "assert";
 import {
-    ACTION_MODAL_SUBMISSION,
+    ACTION_CREATE_REQUEST,
     ACTION_MODAL_REQUEST,
     ACTION_CANCEL_REQUEST,
     ACTION_COMPLETE_REQUEST,
     ACTION_PAGE_REQUEST, ACTION_CLAIM_REQUEST
 } from "../flows";
 import Orchestrator from "../flows/orchestrator";
+import {noop} from "../util";
 
 export const interactions: ISlackInteractionHandler[] = [{
     /************
@@ -37,22 +38,22 @@ export const interactions: ISlackInteractionHandler[] = [{
 
         ////////// CLAIM
         if (slackParams.actions[0].value === "claim_request") {
-            Orchestrator.entryPoint("slack", ACTION_CLAIM_REQUEST, slackParams);
+            Orchestrator.entryPoint("slack", ACTION_CLAIM_REQUEST, slackParams).then(noop);
         }
 
         ////////// CANCEL
         if (slackParams.actions[0].value === "cancel_request") {
-            Orchestrator.entryPoint("slack", ACTION_CANCEL_REQUEST, slackParams);
+            Orchestrator.entryPoint("slack", ACTION_CANCEL_REQUEST, slackParams).then(noop);
         }
 
         ////////// COMPLETE
         if (slackParams.actions[0].value === "complete_request") {
-            Orchestrator.entryPoint("slack", ACTION_COMPLETE_REQUEST, slackParams);
+            Orchestrator.entryPoint("slack", ACTION_COMPLETE_REQUEST, slackParams).then(noop);
         }
 
         ////////// PAGE ON-CALL BUTTON
         if (slackParams.actions[0].value === "page_request") {
-            Orchestrator.entryPoint("slack", ACTION_PAGE_REQUEST, slackParams);
+            Orchestrator.entryPoint("slack", ACTION_PAGE_REQUEST, slackParams).then(noop);
         }
 
         return {
@@ -68,7 +69,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     type: SlackInteractionType.action,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
 
-        Orchestrator.entryPoint("slack", ACTION_MODAL_REQUEST, slackParams);
+        Orchestrator.entryPoint("slack", ACTION_MODAL_REQUEST, slackParams).then(noop);
 
         return {
             code: 200
@@ -82,7 +83,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: { callbackId: "submit_request" },
     type: SlackInteractionType.shortcut,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        Orchestrator.entryPoint("slack", ACTION_MODAL_REQUEST, slackParams);
+        Orchestrator.entryPoint("slack", ACTION_MODAL_REQUEST, slackParams).then(noop);
         return {
             code: 200
         };
@@ -96,7 +97,7 @@ export const interactions: ISlackInteractionHandler[] = [{
     matchingConstraints: "infra_request_modal",
     type: SlackInteractionType.viewSubmission,
     handler: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-        Orchestrator.entryPoint("slack", ACTION_MODAL_SUBMISSION, slackParams);
+        Orchestrator.entryPoint("slack", ACTION_CREATE_REQUEST, slackParams).then(noop);
 
         return {
             code: 200,

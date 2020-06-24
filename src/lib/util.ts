@@ -3,8 +3,9 @@ import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
 import {ModuleConfig, getNestedVal} from "@nexus-switchboard/nexus-extend";
 import {SlackMessageId} from "./slack/slackMessageId";
 import {logger} from "../index";
-import {RequestState} from "./request";
+import {IRequestState, IssueAction, IssueField, RequestState} from "./request";
 import {Actor} from "./actor";
+import _ from "lodash";
 
 export const noop = () => {};
 
@@ -14,7 +15,7 @@ export const noop = () => {};
  * @param str The string to modify
  * @param mapObj The map of strings to map from/to
  */
-export function replaceAll(str: string, mapObj: Record<string, string>) {
+export function replaceAll(str: string, mapObj: Record<string, string>): string {
     const re = new RegExp(Object.keys(mapObj).join('|'), 'gi');
 
     return str.replace(re, (matched: string) => {
@@ -205,4 +206,47 @@ export async function delay(t: number, v?: any) {
     return new Promise(function(resolve) {
         setTimeout(resolve.bind(null, v), t)
     });
+}
+
+/**
+ * Safely create two would-be arrays into a new array.  This simply handles
+ * corner cases where one or both of the arrays are either not defined or not arrays.
+ * @param arr1
+ * @param arr2
+ */
+export function safeArrayMerge<T>(arr1: T[], arr2: T[]): T[] {
+    arr1 = _.isArray(arr1) ? arr1 : []
+    arr2 = _.isArray(arr2) ? arr2 : []
+
+    if (arr1 && !arr2) {
+        return [...arr1];
+    } else if (arr2 && !arr1) {
+        return [...arr2];
+    } else if (!arr2 && !arr1) {
+        return [];
+    } else {
+        return arr1.concat(arr2);
+    }
+}
+
+export function mergeRequestStates(state1: IRequestState, state2: IRequestState): IRequestState {
+    if (state1 && !state2) {
+        return state1;
+    } else if (state2 && !state1) {
+        return state2;
+    } else if (!state2 && !state1) {
+        return {
+            actions: [] as IssueAction[],
+            fields: [] as IssueField[],
+            icon: "",
+            state: ""
+        };
+    } else {
+        return {
+            state: state1.state ? state1.state : state2.state,
+            icon: state1.icon ? state1.icon : state2.icon,
+            actions: safeArrayMerge<IssueAction>(state1.actions, state2.actions),
+            fields: safeArrayMerge<IssueField>(state1.fields, state2.fields),
+        };
+    }
 }

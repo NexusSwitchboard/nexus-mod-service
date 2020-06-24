@@ -3,22 +3,66 @@ import {
     ACTION_CLAIM_REQUEST,
     ACTION_COMMENT_ON_REQUEST,
     ACTION_COMPLETE_REQUEST,
-    ACTION_PAGE_REQUEST, FLOW_CONTINUE,
-    FlowAction, FlowBehavior, FlowState,
-    ServiceFlow, STATE_NO_TICKET
+    ACTION_PAGE_REQUEST,
+    FLOW_CONTINUE,
+    FlowAction,
+    FlowBehavior,
+    FlowSource,
+    FlowState,
+    ServiceFlow
 } from ".";
 
-import moduleInstance, {logger} from "../../index";
-import {delay, noop} from "../util";
-import ServiceRequest from "../request";
-
 import {getNestedVal} from "@nexus-switchboard/nexus-extend";
+import moduleInstance, {logger} from "../../index";
+import ServiceRequest, {IRequestState, IssueAction} from "../request";
+
 import Orchestrator from "./orchestrator";
+import {Action} from "../actions";
+import {ClaimAction} from "../actions/claim";
+import {CancelAction} from "../actions/cancel";
+import {CompleteAction} from "../actions/complete";
+import {CommentAction} from "../actions/comment";
 
 export const STATE_CLAIMED: FlowState = "claimed";
 export const STATE_COMPLETED: FlowState = "completed";
 export const STATE_CANCELLED: FlowState = "cancelled";
 
+export const claimButton: IssueAction = {
+    code: "claim_request",
+    name: "Claim",
+    style: "primary"
+};
+
+export const cancelButton: IssueAction = {
+    code: "cancel_request",
+    name: "Cancel",
+    style: "danger"
+};
+
+export const completeButton: IssueAction = {
+    code: "complete_request",
+    name: "Complete",
+    style: "primary"
+};
+
+/**
+ * CLAIM FLOW
+ *
+ * The claim flow handles the following flow after a ticket has been created (it's expected that the Intake flow
+ * is part of the orchestration):
+ *
+ *  ACTIONS HANDLED:
+ *  > CLAIM - A user has pressed the claim button -> forwards to ClaimAction
+ *  > COMPLETE - A user has pressed the complete button -> forwards to CompleteAction
+ *  > CANCEL - A user has pressed the cancel button -> forwards to CancelAction
+ *  > COMMENT - A user has posted a comment on slack -> forwards to CommentAction
+ *
+ *  UPDATES MADE:
+ *  > Buttons: Adds the Claim and Complete Button
+ *  > Fields: Adds the Claimed By, Completed By and Cancelled By fields
+ *  > icons: Sets the icon for CLAIMED, CANCELLED and COMPLETED states.
+ *  > state: Sets the STATE_CLAIMED, STATE_CANCELLED and STATE_COMPLETED states.
+ */
 export class ClaimFlow extends ServiceFlow {
 
     protected _getFlowActions(_payload: any, _additionalData: any): FlowAction[] {
@@ -27,44 +71,44 @@ export class ClaimFlow extends ServiceFlow {
             ACTION_PAGE_REQUEST]
     }
 
-    protected _handleAsyncResponse(request: ServiceRequest, action: FlowAction, payload: any, _additionalData: any): Promise<void> {
+    protected async _handleEventResponse(source: FlowSource, request: ServiceRequest, action: FlowAction, payload: any, additionalData: any): Promise<ServiceRequest> {
+
+        if (!request || !request.ticket) {
+            return request;
+        }
+
+        let actionOb: Action = undefined;
 
         if (action === ACTION_CLAIM_REQUEST) {
-            Orchestrator.setControlFlow(request.ticket.key, ACTION_CLAIM_REQUEST, "deny");
-            request.claim().then((request: ServiceRequest )=>{
-                this._setRequestState(request);
-                request.updateSlackThread().then(noop);
-            }).finally(()=>{
-                delay(2000).then(()=>{Orchestrator.setControlFlow(request.ticket.key, ACTION_CLAIM_REQUEST, "allow");});
-            });
+            actionOb = new ClaimAction(source, payload, additionalData);
         } else if (action == ACTION_CANCEL_REQUEST) {
-            Orchestrator.setControlFlow(request.ticket.key, ACTION_CANCEL_REQUEST, "deny");
-            request.cancel().then((request: ServiceRequest )=>{
-                this._setRequestState(request);
-                request.updateSlackThread().then(noop);
-            }).finally(()=>{
-                delay(2000).then(()=>{Orchestrator.setControlFlow(request.ticket.key, ACTION_CANCEL_REQUEST, "allow");});
-            });
+            actionOb = new CancelAction(source, payload, additionalData);
         } else if (action == ACTION_COMPLETE_REQUEST) {
-            Orchestrator.setControlFlow(request.ticket.key, ACTION_COMPLETE_REQUEST, "deny");
-            request.complete().then((request: ServiceRequest )=>{
-                this._setRequestState(request);
-                request.updateSlackThread().then(noop);
-            }).finally(()=>{
-                delay(2000).then(()=>{Orchestrator.setControlFlow(request.ticket.key, ACTION_COMPLETE_REQUEST, "allow");});
-            });
+            actionOb = new CompleteAction(source, payload, additionalData);
         } else if (action == ACTION_COMMENT_ON_REQUEST) {
-            request.commentFromSlack(payload).then(noop);
-        } else if (action == ACTION_PAGE_REQUEST) {
-            request.createPagerDutyAlert(payload).then(noop);
+            actionOb = new CommentAction(source, payload, additionalData);
         } else {
             logger("An unrecognized action was triggered in the Flow Orchestrator: " + action);
         }
 
-        return Promise.resolve();
+        if (actionOb) {
+
+            try {
+                Orchestrator.setControlFlow(request.ticket.key, action, "deny");
+
+                request = actionOb.preRun(request);
+                request = await actionOb.run(request);
+                request = await actionOb.postRun(request);
+
+            } finally {
+                Orchestrator.setControlFlow(request.ticket.key, action, "allow");
+            }
+        }
+
+        return request;
     }
 
-    public _handleSyncResponse(action: FlowAction, payload: any, _additionalData: any): FlowBehavior {
+    public _getImmediateResponse(_source: FlowSource, action: FlowAction, payload: any, _additionalData: any): FlowBehavior {
 
         if (action === ACTION_PAGE_REQUEST) {
             // This action is triggered by a user clicking on a button in a
@@ -92,41 +136,60 @@ export class ClaimFlow extends ServiceFlow {
         return FLOW_CONTINUE;
     }
 
-    protected _setRequestState(request: ServiceRequest): FlowState {
+    public async updateState(request: ServiceRequest): Promise<IRequestState> {
 
-        let state: FlowState;
-
-        if (!request || !request.ticket) {
-            state = STATE_NO_TICKET;
-        } else {
-            const config = moduleInstance.getActiveModuleConfig();
+        if (request.ticket) {
+            let updatedState: IRequestState = {icon: "", state: "", actions: [], fields: []};
             const cat: string = getNestedVal(request.ticket, "fields.status.statusCategory.name");
 
-            if (["indeterminate", "in progress"].indexOf(cat.toLowerCase()) >= 0) {
-                state = STATE_CLAIMED;
-            }
+            if (["undefined", "to do", "new"].indexOf(cat.toLowerCase()) >= 0) {
 
-            if (["complete", "done"].indexOf(cat.toLowerCase()) >= 0) {
+                //
+                // GET STATE FOR NOT STARTED REQUEST
+                //
+                // we only need to add the actions specific to this flow.  Since the "new" state is not
+                // natively part of this flow, we expect another flow to handle the other state properties.
+                updatedState.actions.push(claimButton, cancelButton);
+
+            } else if (["indeterminate", "in progress"].indexOf(cat.toLowerCase()) >= 0) {
+
+                //
+                // GET STATE FOR IN CLAIMED REQUEST
+                //
+                updatedState.state = STATE_CLAIMED;
+                updatedState.actions.push(completeButton, cancelButton);
+                updatedState.fields.push({
+                    title: "Claimed By",
+                    value: request.claimer.getBestUserStringForSlack()
+                });
+                updatedState.icon = this.config.REQUEST_WORKING_SLACK_ICON || ":clock1:";
+
+            } else if (["complete", "done"].indexOf(cat.toLowerCase()) >= 0) {
+
+                //
+                // GET STATE FOR COMPLETED REQUEST
+                //
                 const resolution: string = getNestedVal(request.ticket, "fields.resolution.name");
-                if (resolution) {
-                    if (resolution.toLowerCase() === config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
-                        state = STATE_COMPLETED;
-                    } else {
-                        state = STATE_CANCELLED;
-                    }
+                if (!resolution || resolution.toLowerCase() === this.config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
+                    updatedState.state = STATE_COMPLETED;
+                    updatedState.icon = this.config.REQUEST_COMPLETED_SLACK_ICON || ":white_circle:";
+                    updatedState.fields.push({
+                        title: "Completed By",
+                        value: request.closer.getBestUserStringForSlack()
+                    });
                 } else {
-                    // if there is no resolution set then go ahead
-                    //  and mark it as complete.
-                    state = STATE_COMPLETED;
+                    updatedState.state = STATE_CANCELLED;
+                    updatedState.icon = this.config.REQUEST_CANCELLED_SLACK_ICON || ":red_circle:";
+                    updatedState.fields.push({
+                        title: "Cancelled By",
+                        value: request.closer.getBestUserStringForSlack()
+                    });
                 }
             }
+
+            return updatedState;
         }
 
-        if (state) {
-            request.state = state;
-        }
-
-        return state;
+        return request.state;
     }
-
 }

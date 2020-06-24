@@ -16,7 +16,7 @@ import loadWebhooks from "./lib/jira/webhooks";
 import configRules from "./lib/config";
 import assert from "assert";
 import Orchestrator from "./lib/flows/orchestrator";
-import {IntakeFlow} from "./lib/flows/builtin";
+import {IntakeFlow} from "./lib/flows/intake";
 import {ClaimFlow} from "./lib/flows/claim";
 
 

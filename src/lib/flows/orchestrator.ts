@@ -1,11 +1,12 @@
-import ServiceRequest from "../request";
+import ServiceRequest, {IRequestState} from "../request";
 import moduleInstance, {logger} from "../..";
-import {FLOW_CONTINUE, FLOW_HALT, FlowAccessType, FlowAction, FlowSource, ServiceFlow} from "./index";
+import {FLOW_HALT, FLOW_LAST_STEP, FlowAccessType, FlowAction, FlowSource, ServiceFlow} from "./index";
 import {SlackMessageId} from "../slack/slackMessageId";
 import {getNestedVal} from "@nexus-switchboard/nexus-extend";
 import {JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import serviceMod from "../../index";
+import {mergeRequestStates} from "../util";
 
 /**
  * A single instance of the flow orchestrator manages all the active requests.  When an external event occurs,
@@ -63,22 +64,55 @@ export class FlowOrchestrator {
      * @param payload
      * @param additionalData
      */
-    public entryPoint(source: FlowSource, action: FlowAction, payload: any, additionalData?: any) {
+    public async entryPoint(source: FlowSource, action: FlowAction, payload: any, additionalData?: any) {
 
+        // First handle the syncrhonous actions being taken by each flow.  For each flow that
+        //  prevents further flows from acting, carry that forward to the async actions
+        let stopAtFlow = -1;
+        let fullStop = false;
         for (let i = 0; i < this.orderedFlows.length; i++) {
             const flow = this.orderedFlows[i];
-            const behavior = flow.handleSyncAction(source, action, payload, additionalData);
-            if (behavior != FLOW_HALT) {
-                // THIS PART IS ASYNCHRONOUS - DO NOT USE AWAIT OR USE THE RETURN VALUE.
-                flow.handleAsyncAction(source, action,payload, additionalData).catch(
-                    (e) => logger(`Failed to handle action ${action}: ${e.toString()}`));
-            }
-
-            if (behavior != FLOW_CONTINUE) {
+            const behavior = flow.getImmediateResponse(source, action, payload, additionalData);
+            if (behavior === FLOW_HALT) {
+                fullStop = true;
                 break;
+            } else if (behavior == FLOW_LAST_STEP) {
+                stopAtFlow = i;
             }
         }
 
+        if (fullStop) {
+            return;
+        }
+
+        //
+        // RUN THE ASYNC HANDLERS
+        //
+
+        let request: ServiceRequest = null;
+        if (source === "jira") {
+            // We build a request from a jira event (which has to be done differently
+            //  than with slack events).
+            request = await FlowOrchestrator.buildRequestObFromJiraEvent(payload);
+        } else if (source === "slack") {
+            // We build a request from a slack event (which has to be done differently
+            //  than with jira events).
+            request = await FlowOrchestrator.buildRequestObFromSlackEvent(payload);
+        }
+
+        // Once we have the request object, now iterate through the flows to handle the event.
+        //  The request object is modified
+        for (let i = 0; i < this.orderedFlows.length; i++) {
+            const flow = this.orderedFlows[i];
+            if (stopAtFlow == -1 || stopAtFlow >= i) {
+                request = await flow.handleEventResponse(request, source, action, payload, additionalData);
+            }
+        }
+
+        //
+        // RUN THE STATE UPDATER AFTER ALL THE ACTIONS HAVE EXECUTED
+        //
+        await this.updateState(request);
     }
 
     /**
@@ -159,6 +193,30 @@ export class FlowOrchestrator {
 
         await request.init();
         return request;
+    }
+
+    /**
+     * This will give each flow an opportunity to modify the state of the given request.
+     * Each flow should only modify those things that are specific to the flow.  For example, the Intake flow
+     * should not do anything with claims.
+     */
+    public async updateState(request: ServiceRequest) {
+        let lastState: IRequestState = {
+            icon: "",
+            state: "",
+            fields: [],
+            actions: []
+        }
+
+        for (let i = 0; i < this.orderedFlows.length; i++) {
+            const currentState = await this.orderedFlows[i].updateState(request);
+            lastState = mergeRequestStates(currentState, lastState);
+        }
+
+        request.state = lastState;
+
+        // this should only be called from the orchestrator level to avoid multiple updates per event.
+        await request.updateSlackThread();
     }
 }
 

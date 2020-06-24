@@ -3,6 +3,7 @@ import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
 import {logger} from "../../index";
 import Orchestrator from "../flows/orchestrator";
 import {ACTION_TICKET_CHANGED} from "../flows";
+import moduleInstance from "../..";
 
 export default (config: ModuleConfig): WebhookConfiguration[] => {
 
@@ -25,13 +26,31 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
             },
             handler: async (payload: IWebhookPayload): Promise<boolean> => {
 
-                // Only handle this change if one of the relevant fields changed.  Iterate through
-                //  the changes and as soon a relevant one is encountered, notify the orchestrator
-                //  and exit the loop.
-                for (let change of payload.changelog.items) {
-                    if (["status", "summary", "description", "assignee"].indexOf(change.field) >= 0) {
-                        Orchestrator.entryPoint("jira", ACTION_TICKET_CHANGED, payload);
-                        break;
+                // Only handle the change if it was not made by the API user.
+                let myOwnChange = false;
+                const accountId = moduleInstance.getJira().getApiUserAccountId();
+                if (payload.user && payload.user.accountId) {
+                    if (payload.user.accountId == accountId){
+                        myOwnChange = true;
+                    }
+                }
+
+                if (!myOwnChange) {
+
+                    let isRelevantChange = false;
+
+                    // Only handle this change if one of the relevant fields changed.  Iterate through
+                    //  the changes and as soon a relevant one is encountered, notify the orchestrator
+                    //  and exit the loop.
+                    for (let change of payload.changelog.items) {
+                        if (["status", "summary", "description", "assignee"].indexOf(change.field) >= 0) {
+                            isRelevantChange = true;
+                            break;
+                        }
+                    }
+
+                    if (isRelevantChange) {
+                        await Orchestrator.entryPoint("jira", ACTION_TICKET_CHANGED, payload);
                     }
                 }
 

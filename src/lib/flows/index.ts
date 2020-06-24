@@ -1,10 +1,12 @@
-import ServiceRequest from "../request";
-import {FlowOrchestrator} from "./orchestrator";
+import ServiceRequest, {IRequestState} from "../request";
 import {logger} from "../../index";
+import moduleInstance from "../..";
+import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
+import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
 
 export type FlowAction = string;
 export const ACTION_MODAL_REQUEST: FlowAction = "modal_request";
-export const ACTION_MODAL_SUBMISSION: FlowAction = "modal_submission";
+export const ACTION_CREATE_REQUEST: FlowAction = "create_request";
 export const ACTION_CLAIM_REQUEST: FlowAction = "claim_request";
 export const ACTION_COMPLETE_REQUEST: FlowAction = "complete_request";
 export const ACTION_CANCEL_REQUEST: FlowAction = "cancel_request";
@@ -34,12 +36,18 @@ type FlowControl = {
 
 export abstract class ServiceFlow {
 
+    protected readonly jira: JiraConnection;
+    protected readonly config: ModuleConfig;
+
     protected flowControl: FlowControl;
 
     public constructor() {
         this.flowControl = {
             "**": { access: "allow" }
         }
+
+        this.jira = moduleInstance.getJira();
+        this.config = moduleInstance.getActiveModuleConfig();
     }
 
     private static makeControlFlowKey(key: string, action: string) {
@@ -67,53 +75,36 @@ export abstract class ServiceFlow {
 
     /**
      * Handles the reaction to an action performed by the user through one of the flow clients (e.g. Slack).
+     * @param request
      * @param source
      * @param action
      * @param payload
      * @param additionalData
      */
-    public async handleAsyncAction(source: FlowSource, action: FlowAction, payload: any, additionalData: any): Promise<void> {
+    public async handleEventResponse(request: ServiceRequest, source: FlowSource, action: FlowAction, payload: any, additionalData: any): Promise<ServiceRequest> {
 
-        // This function will call the derived async response handler but it
-        //  will also ensure that you don't have multiple calls for the same action
-        //  and the same request.
-        const asyncHandler = (request: ServiceRequest) => {
+        if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
             const key = request.ticket ? request.ticket.key : undefined;
             if (this.getControlFlow(key,action) === "allow") {
-                this._handleAsyncResponse(request, action, payload, additionalData)
-                    .finally(() => {});
+                request = await this._handleEventResponse(source, request, action, payload, additionalData);
             } else {
                 logger(`Action ${action} being performed on ${request.ticket.key} was blocked due to a control flow rule`)
             }
         }
 
-        if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
-
-            if (source === "jira") {
-                // We build a request from a jira event (which has to be done differently
-                //  than with slack events).
-                FlowOrchestrator.buildRequestObFromJiraEvent(payload)
-                    .then(asyncHandler);
-
-            } else if (source === "slack") {
-                // We build a request from a slack event (which has to be done differently
-                //  than with jira events).
-                FlowOrchestrator.buildRequestObFromSlackEvent(payload)
-                    .then(asyncHandler);
-            }
-        }
+        return request;
     }
 
     /**
      * Handle the initial sync response - this must not return a Promise.
-     * @param _source
+     * @param source
      * @param action
      * @param payload
      * @param additionalData
      */
-    public handleSyncAction(_source: FlowSource, action: FlowAction, payload: any, additionalData: any): FlowBehavior {
+    public getImmediateResponse(source: FlowSource, action: FlowAction, payload: any, additionalData: any): FlowBehavior {
         if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
-            return this._handleSyncResponse(action, payload, additionalData);
+            return this._getImmediateResponse(source, action, payload, additionalData);
         } else {
             return FLOW_CONTINUE;
         }
@@ -121,9 +112,10 @@ export abstract class ServiceFlow {
 
     /**
      * Handled by the derived flow and interrogates the given request object to determine its state
-     * in the flow.  If the state is not discernible then the state is not changed.
+     * in the flow.  If the state is not discernible then undefined is returned.  Note that the given
+     * request's state is NEVER CHANGED directly.  Only the new state is returned.
      */
-    protected abstract _setRequestState(request: ServiceRequest): FlowState;
+    public abstract async updateState(request: ServiceRequest): Promise<IRequestState>;
 
     /**
      * Gets a list of the actions that this flow supports.
@@ -138,13 +130,14 @@ export abstract class ServiceFlow {
      *
      * Return true to continue with next action, false otherwise.
      *
+     * @param source
      * @param request
      * @param action
      * @param payload
      * @param additionalData
      * @private
      */
-    protected abstract async _handleAsyncResponse(request: ServiceRequest, action: FlowAction, payload: any, additionalData: any): Promise<void>;
+    protected abstract async _handleEventResponse(source: FlowSource, request: ServiceRequest, action: FlowAction, payload: any, additionalData: any): Promise<ServiceRequest>;
 
     /**
      * _handleActionImmediateResponse is meant to be overridden to perform the necessary actions that must be
@@ -152,11 +145,12 @@ export abstract class ServiceFlow {
      * so that things that rely on short-lived triggers (for example) can be safely done here.
      *
      * Return true to continue with action, false otherwise.
+     * @param source
      * @param action
      * @param payload
      * @param additionalData
      * @private
      */
-    protected abstract _handleSyncResponse(action: FlowAction, payload: any, additionalData: any): FlowBehavior;
+    protected abstract _getImmediateResponse(source: FlowSource, action: FlowAction, payload: any, additionalData: any): FlowBehavior;
 
 }
