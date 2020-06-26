@@ -135,10 +135,15 @@ export class FlowOrchestrator {
             // MAKE JIRA REQUEST TO GET CUSTOM PROPERTIES
             //
             const jiraApi = serviceMod.getJira().api;
+            const propKey = moduleInstance.getActiveModuleConfig().REQUEST_JIRA_SERVICE_LABEL
             prop = await jiraApi.issueProperties.getIssueProperty({
                 issueIdOrKey: webhookPayload.issue.key,
-                propertyKey: moduleInstance.getActiveModuleConfig().REQUEST_JIRA_SERVICE_LABEL
+                propertyKey: propKey
             });
+
+            // Now add the properties to the issue for future reference (some of the
+            //  actions that follow might expect the properties to be part of the webhook payload).
+            webhookPayload.properties = [prop];
 
             if (prop) {
                 prop = prop.value;
@@ -161,10 +166,14 @@ export class FlowOrchestrator {
             return undefined;
         }
 
-        const jiraAccountId = getNestedVal(webhookPayload, "user.accountId");
+        let jiraAccountId = getNestedVal(webhookPayload, "user.accountId");
         if (!jiraAccountId) {
-            logger("Couldn't identify the Jira user that triggered the webhook event so skipping creation of service request object");
-            return undefined;
+            jiraAccountId = getNestedVal(webhookPayload, "comment.author.accountId");
+            if (!jiraAccountId) {
+                logger("Couldn't identify the Jira user that triggered the webhook event " +
+                                "so skipping creation of service request object");
+                return undefined;
+            }
         }
 
         const request = new ServiceRequest(new SlackMessageId(prop.channelId, prop.threadId),

@@ -14,6 +14,7 @@ import {
 } from "./util";
 import {Actor} from "./actor";
 import {FlowState, STATE_UNKNOWN} from "./flows";
+import {getSectionBlockFromText, getContextBlock} from "./util";
 
 export type IssueAction = {
     code: string,
@@ -182,7 +183,7 @@ export default class ServiceRequest {
 
         this.triggerActionUser = new Actor({
             slackUserId: slackUserId || undefined,
-            jiraRawUser: jiraWebhookPayload ? getNestedVal(jiraWebhookPayload, "user") : undefined
+            jiraRawUser: this.getJiraUser(jiraWebhookPayload)
         });
 
         this.jiraWebhookData = jiraWebhookPayload;
@@ -195,6 +196,19 @@ export default class ServiceRequest {
         }
     }
 
+    public getJiraUser(payload: JiraPayload) {
+        if (!payload) {
+            return undefined;
+        }
+
+        let user = getNestedVal(payload, "user");
+        if (!user) {
+            user = getNestedVal(payload, "comment.author");
+        }
+
+        return user;
+    }
+
     public get state(): IRequestState {
         return this._state;
     }
@@ -204,14 +218,14 @@ export default class ServiceRequest {
     }
 
     /**
-     * If true, then a Jira action is what triggered the creation of this 
+     * If true, then a Jira action is what triggered the creation of this
      */
     public get isJiraTriggered(): boolean {
         return this.triggerActionUser.source === "jira";
     };
 
     /**
-     * If true, then a slack action is what triggered the creation of this 
+     * If true, then a slack action is what triggered the creation of this
      */
     public get isSlackTriggered(): boolean {
         return this.triggerActionUser.source === "slack";
@@ -225,8 +239,8 @@ export default class ServiceRequest {
      */
     public async updateSlackThread() {
         this.updateRequestCounter++;
-        if (this.updateRequestCounter == 1){
-            await this.update().finally(()=>{
+        if (this.updateRequestCounter == 1) {
+            await this.update().finally(() => {
                 this.updateRequestCounter = 0;
             });
         }
@@ -266,7 +280,7 @@ export default class ServiceRequest {
                 await this.setTicket(issue);
             }
         } catch (e) {
-            logger(`Exception thrown: Unable to find to reset the request object:` + e.toString());
+            logger(`Failed to build request object content: ` + e.toString());
         }
     }
 
@@ -314,6 +328,11 @@ export default class ServiceRequest {
         }
     }
 
+    public async updateStoredTicket() {
+        if (this._ticket) {
+            this._ticket = this.getJiraIssue(this._ticket.key);
+        }
+    }
 
     /**
      * Use this to pull jira issues from Jira.  This will ensure that the
@@ -382,7 +401,6 @@ export default class ServiceRequest {
     public static get config() {
         return moduleInstance.getActiveModuleConfig();
     }
-
 
 
     public get reporter(): Actor {
@@ -458,9 +476,40 @@ export default class ServiceRequest {
         //  the time of writing this, it was not possible to return just the first reply (grrr..).
         this.actionMessageId = new SlackMessageId(this.channel, botProps.actionMsgId);
         this.reporter = new Actor({slackUserId: botProps.reporterSlackId});
-        this.claimer = new Actor({slackUserId: botProps.claimerSlackId});
-        this.closer = new Actor({slackUserId: botProps.closerSlackId});
+        this.claimer = this.getCurrentAssignee("claimerSlackId");
+        this.closer = this.getCurrentAssignee("closerSlackId");
+
         this.notificationChannel = botProps.notificationChannelId;
+    }
+
+    /**
+     * The current assignee can be called a few different things depending on how the ticket
+     * was transitioned.  For example, if you're looking for the person who "closed" the ticket
+     * then the slack ID of the user who closed the ticket can be found under the "closerSlackId"
+     * property.  But if you're looking for the person who claimed the ticket, then it would be under
+     * the "claimerSlackId" property.  In both cases, though, if that value is not set then we fall back
+     * to the person who the ticket is currently assigned to.
+     */
+    public getCurrentAssignee(botProp: string): Actor {
+        if (this.claimer && this.claimer.isValid) {
+            return this.claimer;
+        }
+
+        // Determine if the properties are set on the ticket to point to a specific slack user
+        const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
+        const claimerSlackId = getNestedVal(this._ticket, `properties.${label}.${botProp}`);
+        if (claimerSlackId) {
+            return new Actor({slackUserId: claimerSlackId});
+        }
+
+        // If no specific slack user then check the assignee of the user - this would be the same as the
+        //  person who claimed the ticket (or next best thing)
+        const jiraRawUser = getNestedVal(this._ticket, 'fields.assignee');
+        if (jiraRawUser){
+            return new Actor({jiraRawUser})
+        }
+
+        return new Actor({});
     }
 
     /**
@@ -518,7 +567,7 @@ export default class ServiceRequest {
      * @param customMsg
      */
     public async update(customMsg?: string) {
-        try{
+        try {
             const blocks = this.buildTextBlocks(customMsg, true);
             const plainText = this.buildPlainTextString(customMsg);
 
@@ -530,7 +579,7 @@ export default class ServiceRequest {
                 text: plainText,
                 blocks
             });
-        } catch(e) {
+        } catch (e) {
             logger("Failed to update the request thread: " + e.toString());
         }
     }
@@ -567,7 +616,7 @@ export default class ServiceRequest {
             const text = await this.renderMessageForSlack(actionMsg);
             const options: ChatPostMessageArguments = {
                 text,
-                blocks: [this.getSectionBlockFromText(text)],
+                blocks: [getSectionBlockFromText(text)],
                 channel: this.notificationChannelId,
                 as_user: true
             };
@@ -576,7 +625,7 @@ export default class ServiceRequest {
                 await this.slack.apiAsBot.chat.postMessage(options);
             } catch (e) {
                 logger("Unable to send a message to the notification channel probably because the app " +
-                       "does not have the necessary permissions.  Error: " + e.toString());
+                    "does not have the necessary permissions.  Error: " + e.toString());
             }
         }
     }
@@ -645,31 +694,6 @@ export default class ServiceRequest {
         return undefined;
     }
 
-    protected getSectionBlockFromText(sectionTitle: string, fields?: (PlainTextElement | MrkdwnElement)[]): (KnownBlock | Block) {
-        return {
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: sectionTitle
-            },
-            fields
-        };
-    }
-
-    protected getContextBlock(text: string[]): (KnownBlock | Block) {
-        const elements = text.map((t) => {
-            return {
-                type: "mrkdwn",
-                text: t
-            };
-        });
-
-        return {
-            type: "context",
-            elements
-        };
-    }
-
     /**
      * Creates the text blocks that should be used to as the thread's top level message.  If you want
      * a purely text-based version of this, then use the buildPlainTextString
@@ -693,13 +717,13 @@ export default class ServiceRequest {
 
             const ticketLink: string = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
             const sectionTitle = `${icon} *<${ticketLink}|${this.ticket.key} - ${this.ticket.fields.summary}>*`;
-            blocks.push(this.getSectionBlockFromText(sectionTitle, fields));
+            blocks.push(getSectionBlockFromText(sectionTitle, fields));
 
             description = this.ticket.fields.description || undefined;
         }
 
         if (customMsg) {
-            blocks.push(this.getContextBlock([customMsg]));
+            blocks.push(getContextBlock([customMsg]));
         }
 
         // Add the description at the end so that only the description is hidden
@@ -712,7 +736,7 @@ export default class ServiceRequest {
             //  text blocks in slack.
             const indentedDescription = ServiceRequest.getIndentedDescription(description);
 
-            blocks.push(this.getSectionBlockFromText("> " + indentedDescription));
+            blocks.push(getSectionBlockFromText("> " + indentedDescription));
         }
 
         return blocks.concat(this.buildActionBlocks());
@@ -761,7 +785,7 @@ export default class ServiceRequest {
         const text = msg;
         const options: ChatPostMessageArguments = {
             text,
-            blocks: [this.getSectionBlockFromText(msg)],
+            blocks: [getSectionBlockFromText(msg)],
             channel: actor.slackUserId,
             as_user: true
         };
@@ -848,8 +872,17 @@ export default class ServiceRequest {
      */
     protected async loadFullTicketDetails(ticket: JiraTicket): Promise<JiraTicket> {
         const label = moduleInstance.getActiveModuleConfig().REQUEST_JIRA_SERVICE_LABEL;
-        const botProps = getNestedVal(ticket, `properties.${label}`);
-        if (!botProps) {
+
+        // A ticket is not fully loaded if it doesn't have these properties yet:
+        const requiredFields = [`properties.${label}`, 'fields.components', 'fields.status', 'fields.labels', 'fields.reporter'];
+
+        // if any of these properties are not set at all in the ticket object, then go ahead and load
+        //  a new ticket object from jira.
+        const hasAllRequiredFields = requiredFields.reduce((p, c) => {
+            return p && getNestedVal(ticket, c) != undefined;
+        }, true);
+
+        if (!hasAllRequiredFields) {
             return await this.jira.api.issues.getIssue({
                 issueIdOrKey: ticket.key,
                 fields: ["*all"],
@@ -928,12 +961,11 @@ export default class ServiceRequest {
 
         return this.state.fields.map((field) => {
             return {
-                type:"mrkdwn",
-                text:`*${field.title}*\n${field.value}`
+                type: "mrkdwn",
+                text: `*${field.title}*\n${field.value}`
             }
         });
     }
-
 
 
     /**

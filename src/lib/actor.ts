@@ -61,6 +61,13 @@ export class Actor {
     }
 
     /**
+     * Determine if a valid actor has been set either through jira or through slack
+     */
+    get isValid(): boolean {
+        return (!!this._jiraRawUser || !!this._jiraUserId || !!this._slackUserId || !!this._slackUserRaw);
+    }
+
+    /**
      * Tries to get the email from either the source email that was set or one of the raw objects that has
      * already been retrieved.  This will not try to load the raw data from slack or Jira, though.  If you want
      * to get the raw data first, you can try to call loadBestRawObject which will look at the information it already
@@ -126,7 +133,7 @@ export class Actor {
         } else if (this.jiraRawUser) {
             userStr = getNestedVal(this.jiraRawUser, 'displayName');
         } else {
-            userStr = "Unknown User";
+            userStr = "No User";
         }
         return userStr;
     }

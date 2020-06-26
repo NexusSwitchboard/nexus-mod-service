@@ -1,9 +1,9 @@
 import {logger} from "../..";
 import {ACTION_COMMENT_ON_REQUEST, FlowAction} from "../flows";
-import {findProperty} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal, findProperty} from "@nexus-switchboard/nexus-extend";
 import ServiceRequest from "../request";
 import {Action} from "./index";
-import {noop, replaceSlackUserIdsWithNames} from "../util";
+import {getContextBlock, getSectionBlockFromText, replaceSlackUserIdsWithNames} from "../util";
 
 /**
  * The CommentAction handles the case where a user has submitted a comment on a platform and
@@ -31,7 +31,9 @@ export class CommentAction extends Action {
     public async run(request: ServiceRequest): Promise<ServiceRequest> {
         try {
             if (this.source === "slack"){
-                this.commentFromSlack(request).then(noop);
+                await this.commentFromSlack(request);
+            } else if (this.source === "jira") {
+                await this.commentFromJira(request);
             }
         } catch (e) {
             logger("Comment handling failed: " + e.toString());
@@ -43,6 +45,23 @@ export class CommentAction extends Action {
         return request;
     }
 
+    public async commentFromJira(request:ServiceRequest): Promise<boolean> {
+        try {
+            logger("Received jira comment - sending to Slack...");
+            const comment = getNestedVal(this.payload,"comment.body");
+            const poster = getNestedVal(this.payload, "comment.author.displayName");
+            await request.addReply({
+                blocks: [
+                    getSectionBlockFromText(comment),
+                    getContextBlock([`Posted in Jira by ${poster}`])
+                ]
+            });
+            return true;
+        } catch (e) {
+            logger("Failed to post Jira comment to slack: " + e.toString());
+            return false;
+        }
+    }
 
     public async commentFromSlack(request:ServiceRequest): Promise<boolean> {
         try {

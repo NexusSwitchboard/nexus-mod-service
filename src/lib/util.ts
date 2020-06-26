@@ -1,3 +1,4 @@
+import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
 import {ModuleConfig, getNestedVal} from "@nexus-switchboard/nexus-extend";
@@ -249,4 +250,29 @@ export function mergeRequestStates(state1: IRequestState, state2: IRequestState)
             fields: safeArrayMerge<IssueField>(state1.fields, state2.fields),
         };
     }
+}
+
+export function getSectionBlockFromText(sectionTitle: string, fields?: (PlainTextElement | MrkdwnElement)[]): (KnownBlock | Block) {
+    return {
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: sectionTitle
+        },
+        fields
+    };
+}
+
+export function getContextBlock(text: string[]): (KnownBlock | Block) {
+    const elements = text.map((t) => {
+        return {
+            type: "mrkdwn",
+            text: t
+        };
+    });
+
+    return {
+        type: "context",
+        elements
+    };
 }

@@ -44,7 +44,10 @@ export class CancelAction extends Action {
     public async run(request: ServiceRequest): Promise<ServiceRequest> {
         try {
             // now let's try marking it as complete with the right resolution.
-            await this.cancelTicket(request);
+            const ticket = await this.cancelTicket(request);
+            if (ticket) {
+                await request.setTicket(ticket);
+            }
 
         } catch (e) {
             logger("Cancel failed with " + e.toString());

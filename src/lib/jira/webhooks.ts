@@ -1,8 +1,8 @@
 import {IWebhookPayload, WebhookConfiguration} from "atlassian-addon-helper";
-import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {ModuleConfig, getNestedVal} from "@nexus-switchboard/nexus-extend";
 import {logger} from "../../index";
 import Orchestrator from "../flows/orchestrator";
-import {ACTION_TICKET_CHANGED} from "../flows";
+import {ACTION_COMMENT_ON_REQUEST, ACTION_TICKET_CHANGED} from "../flows";
 import moduleInstance from "../..";
 
 export default (config: ModuleConfig): WebhookConfiguration[] => {
@@ -17,6 +17,33 @@ export default (config: ModuleConfig): WebhookConfiguration[] => {
     }
 
     return [
+        {
+            definition: {
+                event: "comment_created",
+                filter,
+                propertyKeys: [config.REQUEST_JIRA_SERVICE_LABEL]
+            },
+            handler: async (payload: IWebhookPayload): Promise<boolean> => {
+
+                // Only handle the change if it was not made by the API user.
+                const accountId = moduleInstance.getJira().getApiUserAccountId();
+                const userId = getNestedVal(payload,"comment.author.accountId");
+                if (!userId) {
+                    logger("Unable to extract user ID from comment webhook payload");
+                    return false;
+                }
+
+                if (userId === accountId) {
+                    logger("Received a new comment but it was posted by the bot so ignoring...");
+                    return false;
+                }
+
+                // the payload does not contain full issue details so populate that now.
+
+                await Orchestrator.entryPoint("jira", ACTION_COMMENT_ON_REQUEST, payload);
+                return true;
+            }
+        },
         {
             definition: {
                 event: "jira:issue_updated",
