@@ -1,16 +1,22 @@
-import { SlackPayload } from "@nexus-switchboard/nexus-conn-slack";
-import { JiraTicket } from "@nexus-switchboard/nexus-conn-jira";
-import { ModuleConfig, getNestedVal } from "@nexus-switchboard/nexus-extend";
-import { SlackMessageId } from "./slack/slackMessageId";
-import { logger } from "../index";
-import {RequestState} from "./request";
+import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
+import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
+import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
+import {ModuleConfig, getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {SlackMessageId} from "./slack/slackMessageId";
+import {logger} from "../index";
+import {IRequestState, IssueAction, IssueField, RequestState} from "./request";
+import {Actor} from "./actor";
+import _ from "lodash";
+
+export const noop = () => {};
+
 /**
  * Given a map of from -> to strings, this will replace all occurrences
  * of each in the given string and return the string with replacements
  * @param str The string to modify
  * @param mapObj The map of strings to map from/to
  */
-export function replaceAll(str: string, mapObj: Record<string, string>) {
+export function replaceAll(str: string, mapObj: Record<string, string>): string {
     const re = new RegExp(Object.keys(mapObj).join('|'), 'gi');
 
     return str.replace(re, (matched: string) => {
@@ -42,7 +48,7 @@ export function prepTitleAndDescription(title: string, description: string) {
     if (title.length <= 255) {
         // make sure we are returning valid strings
         description = description || '';
-        return { title, description };
+        return {title, description};
     }
 
     const ELLIPSIS = '...';
@@ -55,7 +61,7 @@ export function prepTitleAndDescription(title: string, description: string) {
     // and remove the extra from the title.
     title = title.slice(0, SLICE_INDEX) + ELLIPSIS;
 
-    return { title, description };
+    return {title, description};
 
 }
 
@@ -83,27 +89,27 @@ export type SlackRequestInfo = {
  * @param data
  */
 export function parseEncodedSlackData(data: string): SlackRequestInfo {
-        try {
-            const parts = data.split(/\|\||--/g);
-            let channel: string;
-            let ts: string;
+    try {
+        const parts = data.split(/\|\||--/g);
+        let channel: string;
+        let ts: string;
 
-            // get the conversation channel and ts
-            if (parts.length >= 2) {
-                [channel, ts] = parts.slice(0,2);
-            }
-
-            return {
-                conversationMsg: new SlackMessageId(channel, ts),
-                notificationChannel: undefined
-            }
-        } catch (e) {
-            logger("Received invalid request ID - could not parse.");
-            return {
-                conversationMsg: undefined,
-                notificationChannel: undefined
-            };
+        // get the conversation channel and ts
+        if (parts.length >= 2) {
+            [channel, ts] = parts.slice(0, 2);
         }
+
+        return {
+            conversationMsg: new SlackMessageId(channel, ts),
+            notificationChannel: undefined
+        }
+    } catch (e) {
+        logger("Received invalid request ID - could not parse.");
+        return {
+            conversationMsg: undefined,
+            notificationChannel: undefined
+        };
+    }
 }
 
 /**
@@ -164,4 +170,109 @@ export function getIssueState(ticket: JiraTicket, config: ModuleConfig): Request
     } else {
         return RequestState.unknown;
     }
-};
+}
+
+
+/**
+ * For a given string, this will find all slack user IDs in the form <@{ID}>
+ *     and replace with the actual name of the user (if found).
+ * @param msg The message to search for slack user IDs in.
+ * @return The message with replacements made.
+ */
+export async function replaceSlackUserIdsWithNames(msg: string): Promise<string> {
+    const ids: Record<string, any> = {};
+    for (const m of msg.matchAll(/<@(?<id>[A-Z0-9]*)>/gi)) {
+        ids[m.groups.id] = "";
+    }
+
+    const replacements: Record<string, any> = {};
+    if (Object.keys(ids).length > 0) {
+        await Promise.all(Object.keys(ids).map(async (id) => {
+            return Actor.getSlackUserDataFromSlackId(id)
+                .then((user) => {
+                    replacements[`<@${id}>`] = getNestedVal(user, "real_name");
+                })
+                .catch((e) => {
+                    logger("Unable to get slack user for ID " + id + ": " + e.toString());
+                });
+        }));
+
+        return replaceAll(msg, replacements);
+    }
+
+    return msg;
+}
+
+export async function delay(t: number, v?: any) {
+    return new Promise(function(resolve) {
+        setTimeout(resolve.bind(null, v), t)
+    });
+}
+
+/**
+ * Safely create two would-be arrays into a new array.  This simply handles
+ * corner cases where one or both of the arrays are either not defined or not arrays.
+ * @param arr1
+ * @param arr2
+ */
+export function safeArrayMerge<T>(arr1: T[], arr2: T[]): T[] {
+    arr1 = _.isArray(arr1) ? arr1 : []
+    arr2 = _.isArray(arr2) ? arr2 : []
+
+    if (arr1 && !arr2) {
+        return [...arr1];
+    } else if (arr2 && !arr1) {
+        return [...arr2];
+    } else if (!arr2 && !arr1) {
+        return [];
+    } else {
+        return arr1.concat(arr2);
+    }
+}
+
+export function mergeRequestStates(state1: IRequestState, state2: IRequestState): IRequestState {
+    if (state1 && !state2) {
+        return state1;
+    } else if (state2 && !state1) {
+        return state2;
+    } else if (!state2 && !state1) {
+        return {
+            actions: [] as IssueAction[],
+            fields: [] as IssueField[],
+            icon: "",
+            state: ""
+        };
+    } else {
+        return {
+            state: state1.state ? state1.state : state2.state,
+            icon: state1.icon ? state1.icon : state2.icon,
+            actions: safeArrayMerge<IssueAction>(state1.actions, state2.actions),
+            fields: safeArrayMerge<IssueField>(state1.fields, state2.fields),
+        };
+    }
+}
+
+export function getSectionBlockFromText(sectionTitle: string, fields?: (PlainTextElement | MrkdwnElement)[]): (KnownBlock | Block) {
+    return {
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: sectionTitle
+        },
+        fields
+    };
+}
+
+export function getContextBlock(text: string[]): (KnownBlock | Block) {
+    const elements = text.map((t) => {
+        return {
+            type: "mrkdwn",
+            text: t
+        };
+    });
+
+    return {
+        type: "context",
+        elements
+    };
+}
