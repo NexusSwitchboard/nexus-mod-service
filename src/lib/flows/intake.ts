@@ -16,7 +16,6 @@ import {getMessageFromSlackErr, noop} from "../util";
 import {CreateAction} from "../actions/create";
 import {Action} from "../actions";
 import {ChangeAction} from "../actions/change";
-import {PagerAction} from "../actions/pager";
 
 const viewButton: IssueAction = {
     code: "view_request",
@@ -58,8 +57,6 @@ export class IntakeFlow extends ServiceFlow {
             actionOb = new CreateAction({source, payload, additionalData, intent: this.intent});
         } else if (action === ACTION_TICKET_CHANGED) {
             actionOb = new ChangeAction({source, payload, additionalData, intent: this.intent});
-        } else if (action == ACTION_PAGE_REQUEST) {
-            actionOb = new PagerAction({source, payload, additionalData, intent: this.intent});
         }
 
         if (actionOb) {

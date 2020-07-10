@@ -82,7 +82,7 @@ export class IntentManager {
                 }
             },
             app_home_opened: async (_conn: SlackConnection, slackParams: SlackPayload): Promise<ISlackAckResponse> => {
-                const home = new SlackHomeTab(slackParams.user);
+                const home = new SlackHomeTab(this, slackParams.user);
                 home.publish().catch((e) => {
                     logger("Failed to publish new home page after `app_home_opened` event received: " + e.toString());
                 });

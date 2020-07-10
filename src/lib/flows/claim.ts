@@ -13,7 +13,7 @@ import {
 } from ".";
 
 import {getNestedVal} from "@nexus-switchboard/nexus-extend";
-import moduleInstance, {logger} from "../../index";
+import moduleInstance from "../../index";
 import ServiceRequest, {IRequestState, IssueAction} from "../request";
 
 import {Action} from "../actions";
@@ -21,6 +21,7 @@ import {ClaimAction} from "../actions/claim";
 import {CancelAction} from "../actions/cancel";
 import {CompleteAction} from "../actions/complete";
 import {CommentAction} from "../actions/comment";
+import {PagerAction} from "../actions/pager";
 
 export const STATE_CLAIMED: FlowState = "claimed";
 export const STATE_COMPLETED: FlowState = "completed";
@@ -86,8 +87,8 @@ export class ClaimFlow extends ServiceFlow {
             actionOb = new CompleteAction({source, payload, additionalData, intent: this.intent});
         } else if (action == ACTION_COMMENT_ON_REQUEST) {
             actionOb = new CommentAction({source, payload, additionalData, intent: this.intent});
-        } else {
-            logger("An unrecognized action was triggered in the Flow Orchestrator: " + action);
+        } else if (action == ACTION_PAGE_REQUEST) {
+            actionOb = new PagerAction({source, payload, additionalData, intent: this.intent});
         }
 
         if (actionOb) {
@@ -123,7 +124,7 @@ export class ClaimFlow extends ServiceFlow {
                 block_id: "page_request_completed",
                 text: {
                     type: "mrkdwn",
-                    text: moduleInstance.getActiveModuleConfig().REQUEST_ON_CALL_PRESSED_MSG
+                    text: this.intent.config.text.onCallButtonPressedText
                 }
             })
             moduleInstance.getSlack().sendMessageResponse(payload, {

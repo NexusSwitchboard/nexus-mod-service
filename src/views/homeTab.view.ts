@@ -15,19 +15,30 @@ export default (data: any): any => {
 
     if (data.issues && data.issues.length > 0) {
         data.issues.forEach((issue: IssueTemplateData) => {
-            ob.blocks.push(
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": `${issue.stateIcon} *<${issue.ticket_url}|${issue.key}> - ${issue.summary}*\n`+
+            if (issue.key === "_DIVIDER_"){
+                ob.blocks.push(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": `*${issue.summary}*`
+                        }
+                    });
+            } else {
+                ob.blocks.push(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": `${issue.stateIcon} *<${issue.ticket_url}|${issue.key}> - ${issue.summary}*\n`+
                                 `*Status:* ${issue.state}   *Reporter:* ${issue.reporter ? issue.reporter : '_Unknown_'}\n` +
                                 `${issue.thread_url ? `<${issue.thread_url}|View thread>` : '_Conversation could not be found_'}`
-                    }
-                });
-            ob.blocks.push({
-                type: "divider"
-            })
+                        }
+                    });
+                ob.blocks.push({
+                    type: "divider"
+                })
+            }
         });
     } else {
         ob.blocks.push({

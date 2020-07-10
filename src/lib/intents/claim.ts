@@ -35,7 +35,7 @@ export class ClaimServiceIntent extends ServiceIntent {
 
     public handleSlackEvent(payload: SlackPayload) {
         // Override to handle event
-        const eventType = getNestedVal(payload, 'event.type');
+        const eventType = getNestedVal(payload, 'type');
         if (eventType === 'message') {
             if (!ServiceRequest.isBotMessage(payload.message || payload)) {
                 this.getFlowOrchestrator().entryPoint("slack", ACTION_COMMENT_ON_REQUEST, payload, this);
@@ -204,7 +204,7 @@ export class ClaimServiceIntent extends ServiceIntent {
 
                     // the payload does not contain full issue details so populate that now.
 
-                    //await Orchestrator.entryPoint("jira", ACTION_COMMENT_ON_REQUEST, payload, undefined);
+                    await this.orchestrator.entryPoint("jira", ACTION_COMMENT_ON_REQUEST, payload, this);
                     return true;
                 }
             },
