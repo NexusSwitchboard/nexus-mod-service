@@ -76,10 +76,11 @@ export class CreateAction extends Action {
      * the "notification" channel.
      * @param startingChannelId
      */
-    protected static identifyChannelAssignments(startingChannelId: string): ChannelAssignments {
-        return ServiceRequest.determineConversationChannel(startingChannelId,
-            moduleInstance.getActiveModuleConfig().SLACK_PRIMARY_CHANNEL,
-            ServiceRequest.config.SLACK_CONVERSATION_RESTRICTION);
+    protected identifyChannelAssignments(startingChannelId: string): ChannelAssignments {
+        return ServiceRequest.determineConversationChannel(
+            startingChannelId,
+            this.intent.getSlackConfig().primaryChannel,
+            this.intent.getSlackConfig().conversationRestriction);
     }
 
 
@@ -109,7 +110,7 @@ export class CreateAction extends Action {
 
                 // Determine which channel should be the notification channel and which should be the
                 //   conversation channel.
-                const channels = CreateAction.identifyChannelAssignments(channelId);
+                const channels = this.identifyChannelAssignments(channelId);
 
                 // Now post a message in the conversation channel - this message will serve as the root of the request
                 //  in slack and all further conversation will happen here.
@@ -122,7 +123,12 @@ export class CreateAction extends Action {
                 const messageTs = findProperty(message, "ts");
 
                 // Now we have all the info we need to create a service request object.
-                const request = new ServiceRequest(new SlackMessageId(channels.conversationChannelId, messageTs), channels.notificationChannelId, slackUserId);
+                const request = new ServiceRequest({
+                    conversationMsg: new SlackMessageId(channels.conversationChannelId, messageTs),
+                    notificationChannelId: channels.notificationChannelId,
+                    slackUserId,
+                    intent: this.intent
+                });
 
                 const params: any = {
                     slackUserId,
@@ -135,7 +141,7 @@ export class CreateAction extends Action {
                 // Now we will construct the ticket parameter starting with the labels.  We submit the
                 //  encoded form of the slack message id in order to connect the jira ticket with the
                 //  message which started it all.
-                const requiredLabels = [`${this.config.REQUEST_JIRA_SERVICE_LABEL}-request`, request.serializeId()];
+                const requiredLabels = [`${this.intent.getJiraConfig().serviceLabel}-request`, request.serializeId()];
                 params.labels = params.labels ? requiredLabels.concat(params.labels) : requiredLabels;
 
                 request.reporter = request.triggerActionUser;
@@ -184,10 +190,10 @@ export class CreateAction extends Action {
                     summary: title,
                     description: this.jira.transformDescriptionText(description, 2),
                     project: {
-                        key: this.config.REQUEST_JIRA_PROJECT
+                        key: this.intent.getJiraConfig().project
                     },
                     issuetype: {
-                        id: this.config.REQUEST_JIRA_ISSUE_TYPE_ID
+                        id: this.intent.getJiraConfig().issueTypeId
                     },
                     priority: {
                         id: params.priority
@@ -199,7 +205,7 @@ export class CreateAction extends Action {
                 },
                 properties: [
                     {
-                        key: ServiceRequest.config.REQUEST_JIRA_SERVICE_LABEL,
+                        key: this.intent.getJiraConfig().serviceLabel,
                         value: {
                             channelId: request.channel,
                             threadId: request.ts,
@@ -219,8 +225,8 @@ export class CreateAction extends Action {
             // we purposely set the epic after the ticket is created to avoid an epic setting error from
             //  preventing  ticket creation.  Sometimes, depending on the configuration of the project, this may
             //  fail while the basic values in the initial ticket creation will almost always succeed.
-            if (ServiceRequest.config.REQUEST_JIRA_EPIC) {
-                await request.setEpic(result.key, ServiceRequest.config.REQUEST_JIRA_EPIC);
+            if (this.intent.getJiraConfig().epicKey) {
+                await request.setEpic(result.key, this.intent.getJiraConfig().epicKey);
             }
 
             // we purposely set the reporter after the ticket is created to avoid a reporter setting error from
@@ -261,14 +267,14 @@ export class CreateAction extends Action {
             }
         }, {type: "divider"}];
 
-        const priorityInfo = moduleInstance.lookupPriorityByJiraId(request.ticket.fields.priority.id);
+        const priorityInfo = this.intent.lookupPriorityByJiraId(request.ticket.fields.priority.id);
         if (priorityInfo && priorityInfo.triggersPagerDuty) {
             blocks.push({
                 type: "section",
                 block_id: "high_priority_warning",
                 text: {
                     type: "mrkdwn",
-                    text: this.config.REQUEST_HIGH_PRIORITY_MSG
+                    text: this.intent.config.text.highPriorityReplyText
                 }
             })
             blocks.push({
@@ -278,7 +284,7 @@ export class CreateAction extends Action {
                     type: "button",
                     text: {
                         type: "plain_text",
-                        text: this.config.REQUEST_ON_CALL_BUTTON_NAME
+                        text: this.intent.config.text.onCallButtonText
                     },
                     value: "page_request",
                     action_id: "page_request",

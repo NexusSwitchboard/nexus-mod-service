@@ -8,6 +8,8 @@ import moduleInstance from "../../index";
 import template from "../../views/homeTab.view";
 import {logger} from "../../index";
 import {getIssueState, iconFromState} from "../util";
+import {ServiceIntent} from "../intents";
+import {IntentManager} from "../intents/manager";
 
 export type IssueTemplateData = {
     key: string,
@@ -20,7 +22,17 @@ export type IssueTemplateData = {
     ticket_url: string
 };
 
+export type IntentTicketResults = {
+    intent: ServiceIntent,
+    issues: JiraPayload[]
+}
+
 export class SlackHomeTab {
+    /**
+     * Shortcut to the connection instance.
+     */
+    private readonly intentManager: IntentManager;
+
     /**
      * Shortcut to the connection instance.
      */
@@ -46,17 +58,15 @@ export class SlackHomeTab {
      */
     private readonly maxIssueCount: number = 25;
 
-    constructor(userId?: string) {
+    constructor(intents: IntentManager, userId?: string) {
         this.slack = moduleInstance.getSlack();
         this.jira = moduleInstance.getJira();
         this.config = moduleInstance.getActiveModuleConfig();
         this.userId = userId;
+        this.intentManager = intents;
     }
 
     public async publish(): Promise<SlackPayload> {
-
-
-        const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
 
         // get a list of open requests
         return this.slack.apiAsBot.views.publish({
@@ -75,14 +85,45 @@ export class SlackHomeTab {
             }
         }).then(() => {
             return this.getAllOpenRequests()
-                .then((results): Promise<IssueTemplateData[]> => {
-                    const issues = results.issues.slice(0, this.maxIssueCount);
-                    return Promise.all(issues.map(async (issue: JiraPayload) => {
+                .then((results: IntentTicketResults[]): Promise<IssueTemplateData[]> => {
 
+                    // This was an addition to incorporate multiple intents into the home tab.
+                    //  The safest way to do it at this time is to combine the issues from all
+                    //  intents and use a null divider to indicate to the renderer that there should
+                    //  be some kind of divider in the UI.
+                    let allIssues:JiraPayload[] = [];
+                    results.forEach((result)=>{
+
+                        if (result.issues.length) {
+                            // this will be interpreted as a divider by the template engine.
+                            allIssues.push({divider: true, intent: result.intent});
+                            allIssues = allIssues.concat(result.issues.slice(0, this.maxIssueCount));
+                        }
+                    });
+
+                    let activeIntent:ServiceIntent = undefined;
+                    return Promise.all(results.map(async (issue: JiraPayload) => {
+
+                        if (getNestedVal(issue, 'divider')) {
+                            activeIntent = issue.intent;
+                            // So this is a special entry that is not actually an issue but is
+                            //  meant to represent the end of one intent and the start of another one.
+                            //  it contains a name string which represents the name of the
+                            return {
+                                key: "_DIVIDER_",
+                                state: undefined,
+                                stateIcon: undefined,
+                                summary: issue.intent.name,
+                                reporter: undefined,
+                                status: undefined,
+                                thread_url: undefined,
+                                ticket_url: undefined
+                            }
+                        }
                         let initiatingSlackUserId: string;
                         let permalink: string;
 
-                        const requestInfo = getNestedVal(issue, `properties.${label}`);
+                        const requestInfo = getNestedVal(issue, `properties.${activeIntent.config.jira.serviceLabel}`);
                         if (requestInfo) {
                             const channelId = requestInfo.channelId;
                             const threadId = requestInfo.threadId;
@@ -101,16 +142,16 @@ export class SlackHomeTab {
                             }
                         }
 
-                        const state = getIssueState(issue, this.config);
+                        const state = getIssueState(issue, activeIntent);
                         return {
                             key: issue.key,
                             state,
-                            stateIcon: iconFromState(state, this.config),
+                            stateIcon: iconFromState(state, activeIntent),
                             summary: issue.fields.summary,
                             reporter: initiatingSlackUserId ? `<@${initiatingSlackUserId}>` : "Unknown",
                             status: issue.fields.status.name,
                             thread_url: permalink,
-                            ticket_url: this.jira.keyToWebLink(this.config.JIRA_HOST, issue.key)
+                            ticket_url: this.jira.keyToWebLink(this.config.jira.hostname, issue.key)
                         } as IssueTemplateData;
                     }));
                 })
@@ -123,17 +164,20 @@ export class SlackHomeTab {
         });
     }
 
-    public async getAllOpenRequests() {
-        const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
-        const project = this.config.REQUEST_JIRA_PROJECT;
-        const issueTypeId = this.config.REQUEST_JIRA_ISSUE_TYPE_ID;
+    public async getAllOpenRequests(): Promise<IntentTicketResults[]> {
 
-        const jql = `issuetype=${issueTypeId} and project="${project}" and labels in ("${label}-request") and statusCategory in ("To Do","In Progress") order by created asc`;
-        return this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
-            jql,
-            fields: ["*all"],
-            properties: [label]
-        });
+        return Promise.all(this.intentManager.intents.map((intent: ServiceIntent) => {
+            return this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
+                jql: intent.getJql({statusCategories:["To Do", "In Progress"]}),
+                fields: ["*all"],
+                properties: [intent.getJiraConfig().serviceLabel]
+            }).then((results: any) => {
+                return {
+                    intent,
+                    issues: results.issues
+                }
+            });
+        }))
     }
 
 }

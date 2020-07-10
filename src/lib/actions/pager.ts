@@ -5,6 +5,7 @@ import {Action} from "./index";
 import {noop} from "../util";
 import {PagerDutyConnection} from "@nexus-switchboard/nexus-conn-pagerduty";
 import moduleInstance from "../.."
+import {ServiceIntent} from "../intents";
 
 /**
  * The PagerAction will create a new pager duty alert based on the contents of the ticket and the
@@ -19,8 +20,8 @@ export class PagerAction extends Action {
 
     protected pagerDuty:PagerDutyConnection;
 
-    public constructor(source: FlowSource, payload: any, additionalData: any) {
-        super(source, payload, additionalData);
+    public constructor(options: { source: FlowSource, payload: any, additionalData: any, intent: ServiceIntent }) {
+        super(options);
         this.pagerDuty = moduleInstance.getPagerDuty();
     }
 
@@ -64,7 +65,7 @@ export class PagerAction extends Action {
         }
 
         try {
-            const ticketLink = this.jira.keyToWebLink(this.config.JIRA_HOST, request.ticket.key);
+            const ticketLink = this.jira.keyToWebLink(this.config.jira.hostname, request.ticket.key);
             let description = `${request.ticket.key}\n${ticketLink}\n-----\n`;
             if (!request.ticket.fields.description) {
                 description += "No description given";
@@ -74,13 +75,13 @@ export class PagerAction extends Action {
 
             // create an alert in pagerduty
             return await this.pagerDuty.api.incidents.createIncident(
-                ServiceRequest.config.PAGERDUTY_FROM_EMAIL,
+                this.intent.getPagerDutyConfig().fromEmail,
                 {
                     incident: {
                         type: "incident",
                         title: `${request.ticket.key} - ${request.ticket.fields.summary}`,
                         service: {
-                            id: this.config.PAGERDUTY_SERVICE_DEFAULT,
+                            id: this.config.pagerDuty.serviceDefault,
                             type: "service_reference"
                         },
                         body: {
@@ -88,7 +89,7 @@ export class PagerAction extends Action {
                             details: description
                         },
                         escalation_policy: {
-                            id: this.config.PAGERDUTY_ESCALATION_POLICY_DEFAULT,
+                            id: this.config.pagerDuty.escalationPolicyDefault,
                             type: "escalation_policy_reference"
                         }
                     }

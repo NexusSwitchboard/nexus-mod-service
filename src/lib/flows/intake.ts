@@ -52,14 +52,14 @@ export class IntakeFlow extends ServiceFlow {
     }
 
     protected async _handleEventResponse(source: FlowSource, request: ServiceRequest, action: FlowAction, payload: any, additionalData: any): Promise<ServiceRequest> {
-        let actionOb:Action;
+        let actionOb: Action;
 
         if (action === ACTION_CREATE_REQUEST) {
-            actionOb = new CreateAction(source, payload, additionalData);
-        } else if (action === ACTION_TICKET_CHANGED){
-            actionOb = new ChangeAction(source, payload, additionalData);
+            actionOb = new CreateAction({source, payload, additionalData, intent: this.intent});
+        } else if (action === ACTION_TICKET_CHANGED) {
+            actionOb = new ChangeAction({source, payload, additionalData, intent: this.intent});
         } else if (action == ACTION_PAGE_REQUEST) {
-            actionOb = new PagerAction(source, payload, additionalData);
+            actionOb = new PagerAction({source, payload, additionalData, intent: this.intent});
         }
 
         if (actionOb) {
@@ -78,7 +78,7 @@ export class IntakeFlow extends ServiceFlow {
     protected _getImmediateResponse(_source: FlowSource, action: FlowAction, payload: any, additionalData: any): FlowBehavior {
         if (action === ACTION_MODAL_REQUEST) {
             const text = additionalData ? additionalData.defaultText : undefined;
-            IntakeFlow.beginRequestCreation(payload, text).then(noop);
+            this.beginRequestCreation(payload, text).then(noop);
             return FLOW_HALT;
         }
 
@@ -92,19 +92,18 @@ export class IntakeFlow extends ServiceFlow {
      * @param payload
      * @param defaultText
      */
-    public static async beginRequestCreation(payload: any, defaultText?: string): Promise<boolean> {
+    public async beginRequestCreation(payload: any, defaultText?: string): Promise<boolean> {
 
         if (!defaultText) {
             defaultText = moduleInstance.getSlack().extractTextFromPayload(payload).join("");
         }
 
-        const modConfig = moduleInstance.getActiveModuleConfig();
-        const channel = modConfig.SLACK_PRIMARY_CHANNEL;
+        const channel = this.intent.getSlackConfig().primaryChannel;
         const triggerId = getNestedVal(payload, 'trigger_id');
 
         if (channel) {
             const slackUserId = findNestedProperty(payload, "user", "id");
-            await IntakeFlow.showCreateModal(triggerId, {
+            await this.showCreateModal(triggerId, {
                 slackUserId,
                 title: defaultText,
                 channelId: channel
@@ -121,14 +120,16 @@ export class IntakeFlow extends ServiceFlow {
      * @param triggerId
      * @param requestParams
      */
-    protected static async showCreateModal(triggerId: string, requestParams: IRequestParams): Promise<boolean> {
+    protected async showCreateModal(triggerId: string, requestParams: IRequestParams): Promise<boolean> {
 
         try {
 
-            // Note: It's okay if modal config is not set - there are defaults for this.
-            const modalConfig = ServiceRequest.config.SUBMIT_MODAL_CONFIG;
-
-            const modal = new RequestModal(requestParams, modalConfig, requestParams.channelId);
+            const modal = new RequestModal({
+                requestInfo: requestParams,
+                intent: this.intent,
+                contextIdentifier: requestParams.channelId
+            });
+            
             return modal.show(triggerId);
 
         } catch (e) {
@@ -147,7 +148,7 @@ export class IntakeFlow extends ServiceFlow {
                 let updatedState: IRequestState = {icon: "", state: "", actions: [], fields: []};
                 if (["undefined", "to do", "new"].indexOf(cat.toLowerCase()) >= 0) {
                     updatedState.state = STATE_TODO;
-                    updatedState.icon = this.config.REQUEST_SUBMITTED_SLACK_ICON || ":black_circle:";
+                    updatedState.icon = this.intent.config.text.emojiSubmitted || ":black_circle:";
                     updatedState.fields.push(
                         {
                             title: "Reported By",
@@ -157,7 +158,7 @@ export class IntakeFlow extends ServiceFlow {
                 }
 
                 const vb = Object.assign({}, viewButton);
-                vb.url = this.jira.keyToWebLink(this.config.JIRA_HOST, request.ticket.key);
+                vb.url = this.jira.keyToWebLink(this.config.jira.hostname, request.ticket.key);
                 updatedState.actions.push(vb)
 
                 return updatedState;

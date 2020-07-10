@@ -5,7 +5,6 @@ import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
 import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import {ChatPostMessageArguments, ChatPostEphemeralArguments, ChatUpdateArguments} from "@slack/web-api";
 
-import moduleInstance from "..";
 import {logger} from "..";
 import {SlackMessageId} from "./slack/slackMessageId";
 import {
@@ -15,6 +14,7 @@ import {
 import {Actor} from "./actor";
 import {FlowState, STATE_UNKNOWN} from "./flows";
 import {getSectionBlockFromText, getContextBlock} from "./util";
+import {ServiceIntent} from "./intents";
 
 export type IssueAction = {
     code: string,
@@ -84,6 +84,14 @@ export interface IRequestState {
     icon: string
 }
 
+export type RequestConstructorParams = {
+    intent: ServiceIntent,
+    conversationMsg: SlackMessageId,
+    notificationChannelId?: string,
+    slackUserId?: string,
+    jiraWebhookPayload?: JiraPayload
+}
+
 /**
  * Represents a single service request.  A service request is sourced in Jira and can be managed through Slack.
  * This class helps maintaining state and performing actions related to the associated request.
@@ -122,6 +130,11 @@ export default class ServiceRequest {
      * been made since the last completed request.
      */
     private updateRequestCounter: number = 0;
+
+    /**
+     * The intent associated with this request.
+     */
+    private readonly intent: ServiceIntent;
 
     /**
      * Shortcut to the connection instance.
@@ -167,26 +180,28 @@ export default class ServiceRequest {
 
     protected cachedPermalinks: Record<string, string>;
 
-    public constructor(conversationMsg: SlackMessageId, notificationChannelId?: string, slackUserId?: string, jiraWebhookPayload?: JiraPayload) {
-        this.slack = moduleInstance.getSlack();
-        this.jira = moduleInstance.getJira();
-        this.config = moduleInstance.getActiveModuleConfig()
+    public constructor(options: RequestConstructorParams) {
+        this.intent = options.intent;
+        this.slack = this.intent.module.getSlack();
+        this.jira = this.intent.module.getJira();
+        this.config = this.intent.module.getActiveModuleConfig()
 
-        if (!ServiceRequest.config.REQUEST_JIRA_SERVICE_LABEL) {
-            throw new Error("The REQUEST_JIRA_SERVICE_LABEL config must be set.");
+        if (!this.intent.getJiraConfig().serviceLabel) {
+            throw new Error("The jira.serviceLabel config must be set.");
         }
 
-        this.channelRestrictionMode = this.config.SLACK_CONVERSATION_RESTRICTION || "primary";
-        this.conversationMessage = conversationMsg;
+        this.channelRestrictionMode = this.intent.getSlackConfig().conversationRestriction || "primary";
+        this.conversationMessage = options.conversationMsg;
         this.cachedPermalinks = {};
-        this.notificationChannel = (notificationChannelId === this.conversationMessage.channel) ? undefined : notificationChannelId;
+        this.notificationChannel = (options.notificationChannelId === this.conversationMessage.channel) ?
+            undefined : options.notificationChannelId;
 
         this.triggerActionUser = new Actor({
-            slackUserId: slackUserId || undefined,
-            jiraRawUser: this.getJiraUser(jiraWebhookPayload)
+            slackUserId: options.slackUserId || undefined,
+            jiraRawUser: this.getJiraUser(options.jiraWebhookPayload)
         });
 
-        this.jiraWebhookData = jiraWebhookPayload;
+        this.jiraWebhookData = options.jiraWebhookPayload;
 
         this._state = {
             state: STATE_UNKNOWN,
@@ -289,7 +304,7 @@ export default class ServiceRequest {
      */
     protected async findTicketFromSlackData(slackData: SlackRequestInfo): Promise<any> {
         try {
-            const label = ServiceRequest.config.REQUEST_JIRA_SERVICE_LABEL;
+            const label = this.intent.getJiraConfig().serviceLabel;
             const jql = `labels in ("${createEncodedSlackData(slackData)}") and labels in ("${label}-request")`;
             const results = await this.jira.api.issueSearch.searchForIssuesUsingJqlPost({
                 jql,
@@ -317,7 +332,7 @@ export default class ServiceRequest {
             return;
         }
 
-        const label = ServiceRequest.config.REQUEST_JIRA_SERVICE_LABEL;
+        const label = this.intent.getJiraConfig().serviceLabel;
         const botProps = getNestedVal(this.ticket, `properties.${label}`);
         const updatedBotProps = Object.assign({propertyKey: label, issueIdOrKey: this.ticket.key}, botProps, updates);
 
@@ -328,11 +343,6 @@ export default class ServiceRequest {
         }
     }
 
-    public async updateStoredTicket() {
-        if (this._ticket) {
-            this._ticket = this.getJiraIssue(this._ticket.key);
-        }
-    }
 
     /**
      * Use this to pull jira issues from Jira.  This will ensure that the
@@ -341,7 +351,7 @@ export default class ServiceRequest {
      * @param key
      */
     public async getJiraIssue(key: string): Promise<JiraTicket> {
-        const label = ServiceRequest.config.REQUEST_JIRA_SERVICE_LABEL;
+        const label = this.intent.getJiraConfig().serviceLabel;
         return await this.jira.api.issues.getIssue({
             issueIdOrKey: key,
             fields: ["*all"],
@@ -378,8 +388,8 @@ export default class ServiceRequest {
                 fields
             };
 
-            if (ServiceRequest.config.REQUEST_JIRA_EPIC_LINK_FIELD) {
-                const epicLinkField: string = ServiceRequest.config.REQUEST_JIRA_EPIC_LINK_FIELD;
+            if (this.intent.getJiraConfig().epicLinkFieldId) {
+                const epicLinkField: string = this.intent.getJiraConfig().epicLinkFieldId;
                 params.fields[epicLinkField] = epicKey;
             } else {
 
@@ -397,11 +407,6 @@ export default class ServiceRequest {
                 e.toString());
         }
     }
-
-    public static get config() {
-        return moduleInstance.getActiveModuleConfig();
-    }
-
 
     public get reporter(): Actor {
         return this._reporter;
@@ -454,7 +459,7 @@ export default class ServiceRequest {
      *              get the full ticket info.
      */
     public async setTicket(val: JiraTicket) {
-        const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
+        const label = this.intent.getJiraConfig().serviceLabel;
         const botProps: JiraIssueSidecarData = getNestedVal(val, `properties.${label}`);
         if (!botProps) {
             throw new Error("A ticket cannot be set which does not have any properties set");
@@ -496,7 +501,7 @@ export default class ServiceRequest {
         }
 
         // Determine if the properties are set on the ticket to point to a specific slack user
-        const label = this.config.REQUEST_JIRA_SERVICE_LABEL;
+        const label = this.intent.getJiraConfig().serviceLabel;
         const claimerSlackId = getNestedVal(this._ticket, `properties.${label}.${botProp}`);
         if (claimerSlackId) {
             return new Actor({slackUserId: claimerSlackId});
@@ -505,7 +510,7 @@ export default class ServiceRequest {
         // If no specific slack user then check the assignee of the user - this would be the same as the
         //  person who claimed the ticket (or next best thing)
         const jiraRawUser = getNestedVal(this._ticket, 'fields.assignee');
-        if (jiraRawUser){
+        if (jiraRawUser) {
             return new Actor({jiraRawUser})
         }
 
@@ -704,8 +709,8 @@ export default class ServiceRequest {
 
         const blocks: (KnownBlock | Block)[] = [];
 
-        const state: RequestState = getIssueState(this.ticket, this.config);
-        const icon = iconFromState(state, this.config);
+        const state: RequestState = getIssueState(this.ticket, this.intent);
+        const icon = iconFromState(state, this.intent);
 
         // Ticket Information (if a ticket is given)
         let description = "";
@@ -715,7 +720,7 @@ export default class ServiceRequest {
             fields.push(this.getPriorityField());
             fields.push(this.getComponentField());
 
-            const ticketLink: string = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+            const ticketLink: string = this.jira.keyToWebLink(this.config.jira.hostname, this.ticket.key);
             const sectionTitle = `${icon} *<${ticketLink}|${this.ticket.key} - ${this.ticket.fields.summary}>*`;
             blocks.push(getSectionBlockFromText(sectionTitle, fields));
 
@@ -755,7 +760,7 @@ export default class ServiceRequest {
             permalink = await this.getPermalink(this.channel, this.ts);
         }
 
-        const jiraLink = this.jira.keyToWebLink(this.config.JIRA_HOST, this.ticket.key);
+        const jiraLink = this.jira.keyToWebLink(this.config.jira.hostname, this.ticket.key);
 
         return replaceAll(text,
             {
@@ -871,7 +876,7 @@ export default class ServiceRequest {
      * @param ticket
      */
     protected async loadFullTicketDetails(ticket: JiraTicket): Promise<JiraTicket> {
-        const label = moduleInstance.getActiveModuleConfig().REQUEST_JIRA_SERVICE_LABEL;
+        const label = this.intent.getJiraConfig().serviceLabel;
 
         // A ticket is not fully loaded if it doesn't have these properties yet:
         const requiredFields = [`properties.${label}`, 'fields.components', 'fields.status', 'fields.labels', 'fields.reporter'];
@@ -903,7 +908,7 @@ export default class ServiceRequest {
         const jiraPriority = getNestedVal(this.ticket, "fields.priority");
 
         if (jiraPriority) {
-            const priorityInfo = moduleInstance.preparedPriorities.find((p) => {
+            const priorityInfo = this.intent.preparedPriorities.find((p) => {
                 return p.jiraId === jiraPriority.id
             });
 

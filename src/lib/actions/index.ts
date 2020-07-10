@@ -1,25 +1,27 @@
 import {FlowAction, FlowSource} from "../flows";
 import ServiceRequest from "../request";
-import moduleInstance from "../..";
 import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
 import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {ServiceIntent} from "../intents";
 
 export abstract class Action {
     protected readonly jira: JiraConnection;
     protected readonly slack: SlackConnection;
+    protected readonly intent: ServiceIntent;
     protected readonly config: ModuleConfig;
     protected readonly payload: any;
     protected readonly additionalData: any;
     protected readonly source: FlowSource;
 
-    public constructor(source?: FlowSource, payload?: any, additionalData?: any) {
-        this.jira = moduleInstance.getJira();
-        this.slack = moduleInstance.getSlack();
-        this.config = moduleInstance.getActiveModuleConfig();
-        this.payload = payload;
-        this.additionalData = additionalData;
-        this.source = source;
+    public constructor(options: {source?: FlowSource, payload?: any, additionalData?: any, intent: ServiceIntent}) {
+        this.intent = options.intent;
+        this.jira = options.intent.module.getJira();
+        this.slack = options.intent.module.getSlack();
+        this.config = options.intent.module.getActiveModuleConfig();
+        this.payload = options.payload;
+        this.additionalData = options.additionalData;
+        this.source = options.source;
     }
     /**
      * Returns the code for the action.  Every action MUST have a unique code.

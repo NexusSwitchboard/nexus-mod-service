@@ -1,42 +1,7 @@
 import {prepTitleAndDescription} from '../util';
 import _ from "lodash"
-import moduleInstance from "../..";
 import SlackModal, {IModalConfig, IModalField, IModalFieldOption} from "./slackModal";
 import {KnownBlock} from "@slack/types";
-
-/**
- * Pulls in the prepped priorities - note that we can't wait until now to load priorities from Jira
- * since this is expected to be a synchronous call (because we can't wait too long to show a modal once
- * a trigger has been fired)
- * @param _modal unused
- * @param _field unused
- */
-const loadPriorities = (_modal: IModalConfig, _field: IModalField): IModalFieldOption[] => {
-    return moduleInstance.preparedPriorities.map((p) => {
-        return {
-            name: p.name,
-            value: p.jiraId,
-            description: p.description
-        }
-    })
-}
-
-/**
- * Pulls in the prepped priorities - note that we can't wait until now to load priorities from Jira
- * since this is expected to be a synchronous call (because we can't wait too long to show a modal once
- * a trigger has been fired)
- * @param _modal unused
- * @param _field unused
- */
-const loadComponents = (_modal: IModalConfig, _field: IModalField): IModalFieldOption[] => {
-    return moduleInstance.jiraComponents.map((c) => {
-        return {
-            value: c.id,
-            name: c.name,
-            description: c.description
-        }
-    });
-}
 
 /**
  * This is the prebuilt modal for requests.
@@ -119,16 +84,48 @@ export default class RequestModal extends SlackModal {
         if (f.type === "priorities") {
             const uf = _.cloneDeep(f);
             uf.type = "dropdown";
-            uf.options = loadPriorities;
+            uf.options = this.loadPriorities();
             return super.getSlackBlockFromFieldConfig(uf);
         } else if (f.type === "components") {
             const uf = _.cloneDeep(f);
             uf.type = "dropdown";
-            uf.options = loadComponents;
+            uf.options = this.loadComponents();
             return super.getSlackBlockFromFieldConfig(uf);
         } else {
             return super.getSlackBlockFromFieldConfig(f);
         }
 
     }
+
+
+    /**
+     * Pulls in the prepped priorities - note that we can't wait until now to load priorities from Jira
+     * since this is expected to be a synchronous call (because we can't wait too long to show a modal once
+     * a trigger has been fired)
+     */
+    protected loadPriorities (): IModalFieldOption[] {
+        return this.intent.preparedPriorities.map((p) => {
+            return {
+                name: p.name,
+                value: p.jiraId,
+                description: p.description
+            }
+        })
+    }
+
+    /**
+     * Pulls in the prepped priorities - note that we can't wait until now to load priorities from Jira
+     * since this is expected to be a synchronous call (because we can't wait too long to show a modal once
+     * a trigger has been fired)
+     */
+    protected loadComponents (): IModalFieldOption[] {
+        return this.intent.jiraComponents.map((c) => {
+            return {
+                value: c.id,
+                name: c.name,
+                description: c.description
+            }
+        });
+    }
+
 };

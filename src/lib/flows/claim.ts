@@ -16,7 +16,6 @@ import {getNestedVal} from "@nexus-switchboard/nexus-extend";
 import moduleInstance, {logger} from "../../index";
 import ServiceRequest, {IRequestState, IssueAction} from "../request";
 
-import Orchestrator from "./orchestrator";
 import {Action} from "../actions";
 import {ClaimAction} from "../actions/claim";
 import {CancelAction} from "../actions/cancel";
@@ -80,13 +79,13 @@ export class ClaimFlow extends ServiceFlow {
         let actionOb: Action = undefined;
 
         if (action === ACTION_CLAIM_REQUEST) {
-            actionOb = new ClaimAction(source, payload, additionalData);
+            actionOb = new ClaimAction({source, payload, additionalData, intent: this.intent});
         } else if (action == ACTION_CANCEL_REQUEST) {
-            actionOb = new CancelAction(source, payload, additionalData);
+            actionOb = new CancelAction({source, payload, additionalData, intent: this.intent});
         } else if (action == ACTION_COMPLETE_REQUEST) {
-            actionOb = new CompleteAction(source, payload, additionalData);
+            actionOb = new CompleteAction({source, payload, additionalData, intent: this.intent});
         } else if (action == ACTION_COMMENT_ON_REQUEST) {
-            actionOb = new CommentAction(source, payload, additionalData);
+            actionOb = new CommentAction({source, payload, additionalData, intent: this.intent});
         } else {
             logger("An unrecognized action was triggered in the Flow Orchestrator: " + action);
         }
@@ -94,14 +93,14 @@ export class ClaimFlow extends ServiceFlow {
         if (actionOb) {
 
             try {
-                Orchestrator.setControlFlow(request.ticket.key, action, "deny");
+                this.intent.orchestrator.setControlFlow(request.ticket.key, action, "deny");
 
                 request = actionOb.preRun(request);
                 request = await actionOb.run(request);
                 request = await actionOb.postRun(request);
 
             } finally {
-                Orchestrator.setControlFlow(request.ticket.key, action, "allow");
+                this.intent.orchestrator.setControlFlow(request.ticket.key, action, "allow");
             }
         }
 
@@ -162,7 +161,7 @@ export class ClaimFlow extends ServiceFlow {
                     title: "Claimed By",
                     value: request.claimer.getBestUserStringForSlack()
                 });
-                updatedState.icon = this.config.REQUEST_WORKING_SLACK_ICON || ":clock1:";
+                updatedState.icon = this.intent.config.text.emojiWorking || ":clock1:";
 
             } else if (["complete", "done"].indexOf(cat.toLowerCase()) >= 0) {
 
@@ -170,16 +169,16 @@ export class ClaimFlow extends ServiceFlow {
                 // GET STATE FOR COMPLETED REQUEST
                 //
                 const resolution: string = getNestedVal(request.ticket, "fields.resolution.name");
-                if (!resolution || resolution.toLowerCase() === this.config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
+                if (!resolution || resolution.toLowerCase() === this.intent.getJiraConfig().resolutionDone.toLowerCase()) {
                     updatedState.state = STATE_COMPLETED;
-                    updatedState.icon = this.config.REQUEST_COMPLETED_SLACK_ICON || ":white_circle:";
+                    updatedState.icon = this.intent.config.text.emojiCompleted || ":white_circle:";
                     updatedState.fields.push({
                         title: "Completed By",
                         value: request.closer.getBestUserStringForSlack()
                     });
                 } else {
                     updatedState.state = STATE_CANCELLED;
-                    updatedState.icon = this.config.REQUEST_CANCELLED_SLACK_ICON || ":red_circle:";
+                    updatedState.icon = this.intent.config.text.emojiCancelled || ":red_circle:";
                     updatedState.fields.push({
                         title: "Cancelled By",
                         value: request.closer.getBestUserStringForSlack()

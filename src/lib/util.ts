@@ -1,12 +1,13 @@
 import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
-import {ModuleConfig, getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal} from "@nexus-switchboard/nexus-extend";
 import {SlackMessageId} from "./slack/slackMessageId";
 import {logger} from "../index";
 import {IRequestState, IssueAction, IssueField, RequestState} from "./request";
 import {Actor} from "./actor";
 import _ from "lodash";
+import {ServiceIntent} from "./intents";
 
 export const noop = () => {};
 
@@ -127,15 +128,15 @@ export function createEncodedSlackData(data: SlackRequestInfo): string {
 }
 
 
-export function iconFromState(state: RequestState, config: ModuleConfig): string {
+export function iconFromState(state: RequestState, intent: ServiceIntent): string {
 
     const statusToIconMap: Record<RequestState, string> = {
-        [RequestState.working]: config.REQUEST_WORKING_SLACK_ICON || ":clock1:",
-        [RequestState.error]: config.REQUEST_ERROR_SLACK_ICON || ":x:",
-        [RequestState.complete]: config.REQUEST_COMPLETED_SLACK_ICON || ":white_circle:",
-        [RequestState.todo]: config.REQUEST_SUBMITTED_SLACK_ICON || ":black_circle:",
-        [RequestState.cancelled]: config.REQUEST_CANCELLED_SLACK_ICON || ":red_circle:",
-        [RequestState.claimed]: config.REQUEST_CLAIMED_SLACK_ICON || ":large_blue_circle:",
+        [RequestState.working]: intent.config.text.emojiWorking || ":clock1:",
+        [RequestState.error]: intent.config.text.emojiError || ":x:",
+        [RequestState.complete]: intent.config.text.emojiCompleted || ":white_circle:",
+        [RequestState.todo]: intent.config.text.emojiSubmitted || ":black_circle:",
+        [RequestState.cancelled]: intent.config.text.emojiCancelled || ":red_circle:",
+        [RequestState.claimed]: intent.config.text.emojiClaimed || ":large_blue_circle:",
         [RequestState.unknown]: ":red_circle"
     };
 
@@ -145,7 +146,7 @@ export function iconFromState(state: RequestState, config: ModuleConfig): string
 /**
  * Maps an issue's status to a request state.
  */
-export function getIssueState(ticket: JiraTicket, config: ModuleConfig): RequestState {
+export function getIssueState(ticket: JiraTicket, intent: ServiceIntent): RequestState {
 
     if (!ticket) {
         return RequestState.working;
@@ -160,7 +161,7 @@ export function getIssueState(ticket: JiraTicket, config: ModuleConfig): Request
     } else if (["complete", "done"].indexOf(cat.toLowerCase()) >= 0) {
         const resolution: string = getNestedVal(ticket, "fields.resolution.name");
         if (resolution) {
-            if (resolution.toLowerCase() === config.REQUEST_JIRA_RESOLUTION_DONE.toLowerCase()) {
+            if (resolution.toLowerCase() === intent.getJiraConfig().resolutionDone.toLowerCase()) {
                 return RequestState.complete;
             } else {
                 return RequestState.cancelled;

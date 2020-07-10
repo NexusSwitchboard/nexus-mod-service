@@ -1,5 +1,5 @@
 import ServiceRequest, {IRequestState} from "../request";
-import moduleInstance, {logger} from "../..";
+import {logger} from "../..";
 import {FLOW_HALT, FLOW_LAST_STEP, FlowAccessType, FlowAction, FlowSource, ServiceFlow} from "./index";
 import {SlackMessageId} from "../slack/slackMessageId";
 import {getNestedVal} from "@nexus-switchboard/nexus-extend";
@@ -7,6 +7,7 @@ import {JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import serviceMod from "../../index";
 import {mergeRequestStates} from "../util";
+import {ServiceIntent} from "../intents";
 
 /**
  * A single instance of the flow orchestrator manages all the active requests.  When an external event occurs,
@@ -35,12 +36,15 @@ import {mergeRequestStates} from "../util";
 export class FlowOrchestrator {
 
     protected orderedFlows: ServiceFlow[];
+    protected intent: ServiceIntent;
 
-    public constructor() {
+    public constructor(intent: ServiceIntent) {
         this.orderedFlows = [];
+        this.intent = intent;
     }
 
     public addFlow(flow: ServiceFlow) {
+        flow.setIntent(this.intent);
         this.orderedFlows.push(flow);
     }
 
@@ -62,9 +66,10 @@ export class FlowOrchestrator {
      * @param source
      * @param action
      * @param payload
+     * @param intent
      * @param additionalData
      */
-    public async entryPoint(source: FlowSource, action: FlowAction, payload: any, additionalData?: any) {
+    public async entryPoint(source: FlowSource, action: FlowAction, payload: any, intent: ServiceIntent, additionalData?: any) {
 
         // First handle the syncrhonous actions being taken by each flow.  For each flow that
         //  prevents further flows from acting, carry that forward to the async actions
@@ -72,7 +77,7 @@ export class FlowOrchestrator {
         let fullStop = false;
         for (let i = 0; i < this.orderedFlows.length; i++) {
             const flow = this.orderedFlows[i];
-            const behavior = flow.getImmediateResponse(source, action, payload, additionalData);
+            const behavior = flow.getImmediateResponse(source, action, payload, intent, additionalData);
             if (behavior === FLOW_HALT) {
                 fullStop = true;
                 break;
@@ -93,11 +98,11 @@ export class FlowOrchestrator {
         if (source === "jira") {
             // We build a request from a jira event (which has to be done differently
             //  than with slack events).
-            request = await FlowOrchestrator.buildRequestObFromJiraEvent(payload);
+            request = await FlowOrchestrator.buildRequestObFromJiraEvent(payload, intent);
         } else if (source === "slack") {
             // We build a request from a slack event (which has to be done differently
             //  than with jira events).
-            request = await FlowOrchestrator.buildRequestObFromSlackEvent(payload);
+            request = await FlowOrchestrator.buildRequestObFromSlackEvent(payload, intent);
         }
 
         // Once we have the request object, now iterate through the flows to handle the event.
@@ -105,7 +110,7 @@ export class FlowOrchestrator {
         for (let i = 0; i < this.orderedFlows.length; i++) {
             const flow = this.orderedFlows[i];
             if (stopAtFlow == -1 || stopAtFlow >= i) {
-                request = await flow.handleEventResponse(request, source, action, payload, additionalData);
+                request = await flow.handleEventResponse(request, source, action, payload, intent, additionalData);
             }
         }
 
@@ -119,8 +124,9 @@ export class FlowOrchestrator {
      * Factory method to create a new Request object.  This should be called when a Jira webhook has been called
      * because a registered event was triggered.
      * @param webhookPayload
+     * @param intent
      */
-    public static async buildRequestObFromJiraEvent(webhookPayload: JiraPayload): Promise<ServiceRequest> {
+    public static async buildRequestObFromJiraEvent(webhookPayload: JiraPayload, intent: ServiceIntent): Promise<ServiceRequest> {
 
         // The only issues that we should receive here are those that match
         //  the filter above so there shouldn't be a need to reverify that these
@@ -135,7 +141,7 @@ export class FlowOrchestrator {
             // MAKE JIRA REQUEST TO GET CUSTOM PROPERTIES
             //
             const jiraApi = serviceMod.getJira().api;
-            const propKey = moduleInstance.getActiveModuleConfig().REQUEST_JIRA_SERVICE_LABEL
+            const propKey = intent.getJiraConfig().serviceLabel;
             prop = await jiraApi.issueProperties.getIssueProperty({
                 issueIdOrKey: webhookPayload.issue.key,
                 propertyKey: propKey
@@ -176,8 +182,12 @@ export class FlowOrchestrator {
             }
         }
 
-        const request = new ServiceRequest(new SlackMessageId(prop.channelId, prop.threadId),
-            prop.notificationChannelId, undefined, webhookPayload);
+        const request = new ServiceRequest({
+            intent: intent,
+            conversationMsg: new SlackMessageId(prop.channelId, prop.threadId),
+            notificationChannelId: prop.notificationChannelId,
+            jiraWebhookPayload: webhookPayload
+        });
         await request.init();
         return request;
     }
@@ -188,17 +198,24 @@ export class FlowOrchestrator {
      * already setup as a thread in the Slack channel.  This will attach to it and return the new ServiceRequest object
      * filled in with all the right values.
      * @param payload
+     * @param intent
      */
-    public static async buildRequestObFromSlackEvent(payload: SlackPayload): Promise<ServiceRequest> {
+    public static async buildRequestObFromSlackEvent(payload: SlackPayload, intent: ServiceIntent): Promise<ServiceRequest> {
         const ts = getNestedVal(payload, 'message.thread_ts') || getNestedVal(payload, 'thread_ts');
         const channelId = getNestedVal(payload, 'channel.id') || getNestedVal(payload, 'channel');
         const slackUserId = getNestedVal(payload, 'user.id') || getNestedVal(payload, 'user');
 
-        const channels = ServiceRequest.determineConversationChannel(channelId, ServiceRequest.config.SLACK_PRIMARY_CHANNEL,
-            ServiceRequest.config.SLACK_CONVERSATION_RESTRICTION);
+        const channels = ServiceRequest.determineConversationChannel(
+            channelId,
+            intent.getSlackConfig().primaryChannel,
+            intent.getSlackConfig().conversationRestriction);
 
-        const request = new ServiceRequest(new SlackMessageId(channels.conversationChannelId, ts),
-            channels.notificationChannelId, slackUserId);
+        const request = new ServiceRequest({
+            intent: intent,
+            conversationMsg: new SlackMessageId(channels.conversationChannelId, ts),
+            notificationChannelId: channels.notificationChannelId,
+            slackUserId: slackUserId
+        });
 
         await request.init();
         return request;
@@ -228,5 +245,3 @@ export class FlowOrchestrator {
         await request.updateSlackThread();
     }
 }
-
-export default new FlowOrchestrator()

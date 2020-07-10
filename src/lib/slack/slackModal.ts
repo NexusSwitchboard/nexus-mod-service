@@ -4,6 +4,7 @@ import {View} from "@slack/web-api";
 import _ from "lodash";
 import {DefaultRequestModalConfig} from "./requestModal";
 import {InputBlock, KnownBlock, Option, PlainTextElement} from "@slack/types";
+import {ServiceIntent} from "../intents";
 
 export type FieldType = string;
 export const SelectTypeFields: FieldType[] = ["dropdown"];
@@ -83,19 +84,21 @@ export interface IModalField {
  */
 export default class SlackModal {
 
+    protected readonly intent: ServiceIntent;
     modalConfig: IModalConfig;
     requestInfo: IRequestParams;
     contextIdentifier: string;
     initialValues: Record<string, string>;
 
-    constructor(
+    constructor(options: {
+        intent: ServiceIntent,
         requestInfo: IRequestParams,
-        modalConfig: IModalConfig,
-        contextIdentifier?: string) {
+        contextIdentifier?: string}) {
 
-        this.requestInfo = requestInfo;
-        this.modalConfig = modalConfig || DefaultRequestModalConfig
-        this.contextIdentifier = contextIdentifier;
+        this.intent = options.intent;
+        this.requestInfo = options.requestInfo;
+        this.modalConfig = options.intent.modalConfig || DefaultRequestModalConfig
+        this.contextIdentifier = options.contextIdentifier;
         this.initialValues = {};
 
         this._init();

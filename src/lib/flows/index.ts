@@ -1,8 +1,8 @@
 import ServiceRequest, {IRequestState} from "../request";
 import {logger} from "../../index";
-import moduleInstance from "../..";
 import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
 import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {ServiceIntent} from "../intents";
 
 export type FlowAction = string;
 export const ACTION_MODAL_REQUEST: FlowAction = "modal_request";
@@ -39,15 +39,23 @@ export abstract class ServiceFlow {
     protected readonly jira: JiraConnection;
     protected readonly config: ModuleConfig;
 
+    protected intent: ServiceIntent;
+
     protected flowControl: FlowControl;
 
-    public constructor() {
+    public constructor(intent: ServiceIntent) {
         this.flowControl = {
             "**": { access: "allow" }
         }
 
-        this.jira = moduleInstance.getJira();
-        this.config = moduleInstance.getActiveModuleConfig();
+        this.jira = intent.module.getJira();
+        this.config = intent.module.getActiveModuleConfig();
+
+        this.intent = intent;
+    }
+
+    public setIntent(intent:ServiceIntent) {
+        this.intent = intent;
     }
 
     private static makeControlFlowKey(key: string, action: string) {
@@ -79,9 +87,12 @@ export abstract class ServiceFlow {
      * @param source
      * @param action
      * @param payload
+     * @param _intent
      * @param additionalData
      */
-    public async handleEventResponse(request: ServiceRequest, source: FlowSource, action: FlowAction, payload: any, additionalData: any): Promise<ServiceRequest> {
+    public async handleEventResponse(request: ServiceRequest, source: FlowSource,
+                                     action: FlowAction, payload: any,
+                                     _intent: ServiceIntent, additionalData: any): Promise<ServiceRequest> {
 
         if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
             const key = request.ticket ? request.ticket.key : undefined;
@@ -100,9 +111,10 @@ export abstract class ServiceFlow {
      * @param source
      * @param action
      * @param payload
+     * @param _intent
      * @param additionalData
      */
-    public getImmediateResponse(source: FlowSource, action: FlowAction, payload: any, additionalData: any): FlowBehavior {
+    public getImmediateResponse(source: FlowSource, action: FlowAction, payload: any, _intent: ServiceIntent, additionalData: any): FlowBehavior {
         if (this._getFlowActions(payload, additionalData).indexOf(action) > -1) {
             return this._getImmediateResponse(source, action, payload, additionalData);
         } else {

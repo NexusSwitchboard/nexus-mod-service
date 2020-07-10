@@ -89,7 +89,7 @@ export class ClaimAction extends Action {
             await this.jira.api.issues.transitionIssue({
                 issueIdOrKey: request.ticket.key,
                 transition: {
-                    id: ServiceRequest.config.REQUEST_JIRA_START_TRANSITION_ID // Start Progress
+                    id: this.intent.getJiraConfig().transitionStart
                 },
                 fields: undefined,
                 update: undefined,

@@ -5,6 +5,7 @@ import {ACTION_CLAIM_REQUEST, FlowAction} from "../flows";
 import ServiceRequest from "../request";
 import {Action} from "./index";
 import {noop} from "../util";
+import {getNestedVal} from "@nexus-switchboard/nexus-extend";
 
 /**
  * The CompleteAction will transition a ticket to complete with a positive resolution (such as "Done").
@@ -61,9 +62,9 @@ export class CompleteAction extends Action {
      */
     public async completeTicket(request: ServiceRequest): Promise<JiraTicket> {
 
-        let resolutionId = await this.jira.getResolutionIdFromName(this.config.REQUEST_JIRA_RESOLUTION_DONE);
+        let resolutionId = await this.jira.getResolutionIdFromName(this.intent.getJiraConfig().resolutionDone);
         if (!resolutionId) {
-            logger(`Unable to find the resolution "${this.config.REQUEST_JIRA_RESOLUTION_DONE}" so defaulting to 'Done'`);
+            logger(`Unable to find the resolution "${this.intent.getJiraConfig().resolutionDone}" so defaulting to 'Done'`);
             resolutionId = 1; // Done
         }
 
@@ -71,7 +72,7 @@ export class CompleteAction extends Action {
             await this.jira.api.issues.transitionIssue({
                 issueIdOrKey: request.ticket.key,
                 transition: {
-                    id: ServiceRequest.config.REQUEST_JIRA_COMPLETE_TRANSITION_ID
+                    id: this.intent.getJiraConfig().transitionComplete
                 },
                 fields: {
                     resolution: {
@@ -90,7 +91,13 @@ export class CompleteAction extends Action {
             return await request.getJiraIssue(request.ticket.key);
 
         } catch (e) {
-            logger("Unable to transition the given issue: " + e.toString());
+            const specificError = getNestedVal(e, 'response.data.errors');
+            if (specificError) {
+                logger("Unable to transition the given issue: " + JSON.stringify(specificError,undefined, 2));
+            } else {
+                logger("Unable to transition the given issue:" + e.toString());
+            }
+
             return undefined;
         }
     }

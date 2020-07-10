@@ -61,9 +61,9 @@ export class CancelAction extends Action {
      */
     public async cancelTicket(request: ServiceRequest): Promise<JiraTicket> {
 
-        let resolutionId = await this.jira.getResolutionIdFromName(this.config.REQUEST_JIRA_RESOLUTION_DISMISS);
+        let resolutionId = await this.jira.getResolutionIdFromName(this.intent.getJiraConfig().resolutionCancel);
         if (!resolutionId) {
-            logger(`Unable to find the resolution "${this.config.REQUEST_JIRA_RESOLUTION_DISMISS}" so defaulting to 'Done'`);
+            logger(`Unable to find the resolution "${this.intent.getJiraConfig().resolutionCancel}" so defaulting to 'Done'`);
             resolutionId = 1; // Done
         }
 
@@ -71,7 +71,7 @@ export class CancelAction extends Action {
             await this.jira.api.issues.transitionIssue({
                 issueIdOrKey: request.ticket.key,
                 transition: {
-                    id: ServiceRequest.config.REQUEST_JIRA_COMPLETE_TRANSITION_ID
+                    id: this.intent.getJiraConfig().transitionCancel
                 },
                 fields: {
                     resolution: {
