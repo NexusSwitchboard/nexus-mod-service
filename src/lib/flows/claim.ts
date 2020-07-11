@@ -131,6 +131,29 @@ export class ClaimFlow extends ServiceFlow {
                 replace_original: true,
                 blocks: newBlocks
             });
+        } else if ([ACTION_CLAIM_REQUEST, ACTION_COMPLETE_REQUEST, ACTION_CANCEL_REQUEST].indexOf(action) > -1) {
+
+            // Make no changes to any of the blocks except the one
+            //  that holds the action buttons.
+            const newBlocks = payload.message.blocks.map((b: any) => {
+                if (b.block_id == "infra_request_actions") {
+                    return {
+                        type: "section",
+                        block_id: "action_block_working",
+                        text: {
+                            type: "mrkdwn",
+                            text: `${this.intent.config.text.emojiWorking} _Working on it..._`
+                        }
+                    }
+                } else {
+                    return b;
+                }
+            });
+
+            moduleInstance.getSlack().sendMessageResponse(payload, {
+                replace_original: true,
+                blocks: newBlocks
+            });
         }
 
         return FLOW_CONTINUE;
