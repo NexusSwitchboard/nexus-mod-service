@@ -143,17 +143,22 @@ export class IntakeFlow extends ServiceFlow {
                 const cat: string = getNestedVal(request.ticket, "fields.status.statusCategory.name");
 
                 let updatedState: IRequestState = {icon: "", state: "", actions: [], fields: []};
+
+                // Only set the icon and state if it's in the open state.
                 if (["undefined", "to do", "new"].indexOf(cat.toLowerCase()) >= 0) {
                     updatedState.state = STATE_TODO;
                     updatedState.icon = this.intent.config.text.emojiSubmitted || ":black_circle:";
-                    updatedState.fields.push(
-                        {
-                            title: "Reported By",
-                            value: request.reporter.getBestUserStringForSlack()
-                        }
-                    );
                 }
 
+                // Always show the "Reported By"
+                updatedState.fields.push(
+                    {
+                        title: "Reported By",
+                        value: request.reporter.getBestUserStringForSlack()
+                    }
+                );
+
+                // Always show the "View Ticket" button
                 const vb = Object.assign({}, viewButton);
                 vb.url = this.jira.keyToWebLink(this.config.jira.hostname, request.ticket.key);
                 updatedState.actions.push(vb)
