@@ -1,6 +1,6 @@
 import {logger} from "../..";
 import {ACTION_COMMENT_ON_REQUEST, FlowAction} from "../flows";
-import {getNestedVal, findProperty} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal, findProperty} from "@nexus-switchboard/nexus-core";
 import ServiceRequest from "../request";
 import {Action} from "./index";
 import {getContextBlock, getSectionBlockFromText, replaceSlackUserIdsWithNames} from "../util";

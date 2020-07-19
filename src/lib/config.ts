@@ -1,4 +1,4 @@
-import {IConfigGroupRule} from "@nexus-switchboard/nexus-extend";
+import {IConfigGroupRule} from "@nexus-switchboard/nexus-core";
 
 export const moduleConfigurationRules: IConfigGroupRule[] = [
     {

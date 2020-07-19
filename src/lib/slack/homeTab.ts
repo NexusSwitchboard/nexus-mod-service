@@ -2,7 +2,7 @@ import {WebAPICallResult} from "@slack/web-api";
 
 import {JiraConnection, JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection, SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
-import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-core";
 
 import moduleInstance from "../../index";
 import template from "../../views/homeTab.view";

@@ -1,4 +1,4 @@
-import {getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal} from "@nexus-switchboard/nexus-core";
 import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
 
 import {logger} from "../..";

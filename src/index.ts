@@ -8,7 +8,7 @@ import {
     NexusModule,
     checkConfig,
     ModuleConfig, INexusActiveModule
-} from "@nexus-switchboard/nexus-extend";
+} from "@nexus-switchboard/nexus-core";
 import {IntentManager} from "./lib/intents/manager";
 import {moduleConfigurationRules} from "./lib/config";
 

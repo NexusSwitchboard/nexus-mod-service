@@ -23,7 +23,7 @@
     "@nexus-switchboard/nexus-conn-jira": "^0.1.16",
     "@nexus-switchboard/nexus-conn-pagerduty": "^0.0.4",
     "@nexus-switchboard/nexus-conn-slack": "^0.2.12",
-    "@nexus-switchboard/nexus-extend": "^0.5.11",
+    "@nexus-switchboard/nexus-core": "^0.6.0",
     "assert": "^2.0.0",
     "debug": "^4.1.1",
     "got": "^10.7.0",

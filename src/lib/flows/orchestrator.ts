@@ -2,7 +2,7 @@ import ServiceRequest, {IRequestState} from "../request";
 import {logger} from "../..";
 import {FLOW_HALT, FLOW_LAST_STEP, FlowAccessType, FlowAction, FlowSource, ServiceFlow} from "./index";
 import {SlackMessageId} from "../slack/slackMessageId";
-import {getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal} from "@nexus-switchboard/nexus-core";
 import {JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import serviceMod from "../../index";
