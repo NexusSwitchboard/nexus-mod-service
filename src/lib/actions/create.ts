@@ -1,4 +1,4 @@
-import {findNestedProperty, getNestedVal, findProperty} from "@nexus-switchboard/nexus-extend";
+import {findNestedProperty, getNestedVal, findProperty} from "@nexus-switchboard/nexus-core";
 import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 

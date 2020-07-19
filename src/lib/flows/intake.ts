@@ -4,7 +4,7 @@ import {
     FlowAction, FlowBehavior,
     ServiceFlow, FlowSource, FLOW_HALT, STATE_TODO, ACTION_PAGE_REQUEST
 } from "./index";
-import {findNestedProperty, getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {findNestedProperty, getNestedVal} from "@nexus-switchboard/nexus-core";
 import moduleInstance, {logger} from "../../index";
 import ServiceRequest, {
     IRequestParams,

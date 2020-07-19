@@ -1,7 +1,7 @@
 import ServiceRequest, {IRequestState} from "../request";
 import {logger} from "../../index";
 import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
-import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {ModuleConfig} from "@nexus-switchboard/nexus-core";
 import {ServiceIntent} from "../intents";
 
 export type FlowAction = string;

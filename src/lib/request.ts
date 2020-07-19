@@ -1,6 +1,6 @@
 import {JiraConnection, JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection, SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
-import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal, ModuleConfig} from "@nexus-switchboard/nexus-core";
 
 import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import {ChatPostMessageArguments, ChatPostEphemeralArguments, ChatUpdateArguments} from "@slack/web-api";

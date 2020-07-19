@@ -1,4 +1,4 @@
-import {IConfigGroups} from "@nexus-switchboard/nexus-extend";
+import {IConfigGroups} from "@nexus-switchboard/nexus-core";
 import {SlackPayload, SlackSubCommandList, ISlackInteractionHandler} from "@nexus-switchboard/nexus-conn-slack";
 import {JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
 import {WebhookConfiguration} from "atlassian-addon-helper";

@@ -1,6 +1,6 @@
 import {logger} from "..";
 import module from "../index";
-import {getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal} from "@nexus-switchboard/nexus-core";
 import {SlackPayload, SlackWebApiResponse} from "@nexus-switchboard/nexus-conn-slack"
 import {JiraPayload} from "@nexus-switchboard/nexus-conn-jira";
 

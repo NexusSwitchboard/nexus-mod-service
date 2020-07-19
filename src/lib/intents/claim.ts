@@ -9,7 +9,7 @@ import {
     ISlackInteractionHandler
 } from "@nexus-switchboard/nexus-conn-slack";
 import {noop} from "../util";
-import {IConfigGroups, getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {IConfigGroups, getNestedVal} from "@nexus-switchboard/nexus-core";
 
 import {
     ACTION_CANCEL_REQUEST,

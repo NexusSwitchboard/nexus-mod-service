@@ -2,7 +2,7 @@ import {FlowAction, FlowSource} from "../flows";
 import ServiceRequest from "../request";
 import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
 import {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
-import {ModuleConfig} from "@nexus-switchboard/nexus-extend";
+import {ModuleConfig} from "@nexus-switchboard/nexus-core";
 import {ServiceIntent} from "../intents";
 
 export abstract class Action {

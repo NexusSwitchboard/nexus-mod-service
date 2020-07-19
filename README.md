@@ -6,8 +6,8 @@ It provides a deeper and purpose-built set of integrations between slack and Jir
 # Features
 1. Using either a slash command or _action_ to initiate the request dialog
 2. Creates an issue in Jira and allows users to update the status of the ticket from Slack.  
-3. All conversation that happens in the Slack thread associated with the request gets added as a comment to the Jira ticket.
-4. Communicate with 
+3. All conversation that happens in the Slack thread associated with the request gets added as a comment to the Jira ticket and vice versa.
+
 # How It Works
 
 ## Global Action
@@ -97,7 +97,7 @@ PagerDuty configuration is only necessary if you have indicated that one or more
 ## Slack Configuration Notes
 Beyond the configuration in the nexus implementation for Slack, you will need the following configuration options set in the Slack App you create and point to your instance of the module:
 
-1. Intractive Components
+1. Interactive Components
    1. Enable
    2. Add Action: Callback ID is submit_infra_request
    3. Action Name: Whatever you want

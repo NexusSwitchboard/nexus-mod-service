@@ -1,4 +1,4 @@
-import {NexusModule} from "@nexus-switchboard/nexus-extend";
+import {NexusModule} from "@nexus-switchboard/nexus-core";
 
 export interface IServiceApprovalConfig {
     [index: string]: IServiceApproval

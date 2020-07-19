@@ -12,7 +12,7 @@ import {
     ServiceFlow
 } from ".";
 
-import {getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal} from "@nexus-switchboard/nexus-core";
 import moduleInstance from "../../index";
 import ServiceRequest, {IRequestState, IssueAction} from "../request";
 

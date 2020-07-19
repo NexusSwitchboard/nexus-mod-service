@@ -1,7 +1,7 @@
 import {KnownBlock, Block, PlainTextElement, MrkdwnElement} from "@slack/types";
 import {SlackPayload} from "@nexus-switchboard/nexus-conn-slack";
 import {JiraTicket} from "@nexus-switchboard/nexus-conn-jira";
-import {getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal} from "@nexus-switchboard/nexus-core";
 import {SlackMessageId} from "./slack/slackMessageId";
 import {logger} from "../index";
 import {IRequestState, IssueAction, IssueField, RequestState} from "./request";

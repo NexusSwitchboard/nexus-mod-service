@@ -5,7 +5,7 @@ import {ACTION_CLAIM_REQUEST, FlowAction} from "../flows";
 import ServiceRequest from "../request";
 import {Action} from "./index";
 import {noop} from "../util";
-import {getNestedVal} from "@nexus-switchboard/nexus-extend";
+import {getNestedVal} from "@nexus-switchboard/nexus-core";
 
 /**
  * The CompleteAction will transition a ticket to complete with a positive resolution (such as "Done").
