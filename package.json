@@ -1,6 +1,6 @@
 {
   "name": "@nexus-switchboard/nexus-mod-service",
-  "version": "0.5.25",
+  "version": "0.6.0",
   "keywords": [
     "nexus-module"
   ],
@@ -20,9 +20,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@nexus-switchboard/nexus-conn-jira": "^0.1.16",
-    "@nexus-switchboard/nexus-conn-pagerduty": "^0.0.4",
-    "@nexus-switchboard/nexus-conn-slack": "^0.2.12",
+    "@nexus-switchboard/nexus-conn-jira": "^0.2.0",
+    "@nexus-switchboard/nexus-conn-pagerduty": "^0.1.0",
+    "@nexus-switchboard/nexus-conn-slack": "^0.3.0",
     "@nexus-switchboard/nexus-core": "^0.6.0",
     "assert": "^2.0.0",
     "debug": "^4.1.1",
