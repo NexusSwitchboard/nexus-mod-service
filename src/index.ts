@@ -1,13 +1,12 @@
 import createDebug from "debug";
 import {Application} from 'express';
-import {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
-import {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
-import {PagerDutyConnection} from "@nexus-switchboard/nexus-conn-pagerduty";
+import createJiraConnection, {JiraConnection} from "@nexus-switchboard/nexus-conn-jira";
+import createSlackConnection, {SlackConnection} from "@nexus-switchboard/nexus-conn-slack";
+import createPagerDutyConnection, {PagerDutyConnection} from "@nexus-switchboard/nexus-conn-pagerduty";
 import {
-    ConnectionRequest,
     NexusModule,
     checkConfig,
-    ModuleConfig, INexusActiveModule
+    ModuleConfig, INexusActiveModule, ConnectionConfig, Connection
 } from "@nexus-switchboard/nexus-core";
 import {IntentManager} from "./lib/intents/manager";
 import {moduleConfigurationRules} from "./lib/config";
@@ -35,6 +34,10 @@ export const logger = createDebug("nexus:service");
 export class ServiceModule extends NexusModule {
     public name = "service";
     public intentManager: IntentManager
+
+    protected jiraConnection: JiraConnection;
+    protected slackConnection: SlackConnection;
+    protected pagerDutyConnection: PagerDutyConnection;
 
     public getIntentManager() {
         return this.intentManager;
@@ -137,81 +140,91 @@ export class ServiceModule extends NexusModule {
         return config;
     }
 
-    public getJiraConnectionData(config: ModuleConfig, subApp: Application): ConnectionRequest {
+    public getJiraConnectionData(config: ModuleConfig, subApp: Application): ConnectionConfig {
         return {
-            name: "nexus-conn-jira",
-            config: {
-                host: config.jira.hostname,
-                username: config.secrets.jiraUsername,
-                apiToken: config.secrets.jiraPassword,
+            host: config.jira.hostname,
+            username: config.secrets.jiraUsername,
+            apiToken: config.secrets.jiraPassword,
 
-                subApp,
+            subApp,
 
-                addon: {
-                    key: config.jira.addon.key,
-                    name: config.jira.addon.name,
-                    description: config.jira.addon.description,
-                    vendor: {
-                        name: config.jira.addon.vendorName,
-                        url: config.jira.addon.vendorUrl
-                    }
-                },
+            addon: {
+                key: config.jira.addon.key,
+                name: config.jira.addon.name,
+                description: config.jira.addon.description,
+                vendor: {
+                    name: config.jira.addon.vendorName,
+                    url: config.jira.addon.vendorUrl
+                }
+            },
 
-                baseUrl: `${this.globalConfig.baseUrl}${this.moduleRootPath}`,
-                webhooks: this.intentManager.getJiraEventHandlers(),
-                connectionString: config.secrets.jiraAddonCache
-            }
+            baseUrl: `${this.globalConfig.baseUrl}${this.moduleRootPath}`,
+            webhooks: this.intentManager.getJiraEventHandlers(),
+            connectionString: config.secrets.jiraAddonCache
         }
     }
 
-    public getSlackConnectionData(config: ModuleConfig, subApp: Application): ConnectionRequest {
+    public getSlackConnectionData(config: ModuleConfig, subApp: Application): ConnectionConfig {
         return {
-            name: "nexus-conn-slack",
-            config: {
-                appId: config.secrets.slackAppId,
-                clientId: config.secrets.slackClientId,
-                clientSecret: config.secrets.slackClientSecret,
-                signingSecret: config.secrets.slackSigningSecret,
-                clientOAuthToken: config.secrets.slackClientOauthToken,
-                botUserOAuthToken: config.secrets.slackUserOauthToken,
-                eventListeners: this.intentManager.getSlackEventsConfig(),
-                commands: this.intentManager.getSlashCommandsConfig(),
-                interactionListeners: this.intentManager.getSlackInteractionsConfig(),
-                subApp,
-            }
+            appId: config.secrets.slackAppId,
+            clientId: config.secrets.slackClientId,
+            clientSecret: config.secrets.slackClientSecret,
+            signingSecret: config.secrets.slackSigningSecret,
+            clientOAuthToken: config.secrets.slackClientOauthToken,
+            botUserOAuthToken: config.secrets.slackUserOauthToken,
+            eventListeners: this.intentManager.getSlackEventsConfig(),
+            commands: this.intentManager.getSlashCommandsConfig(),
+            interactionListeners: this.intentManager.getSlackInteractionsConfig(),
+            subApp,
         }
     }
 
-    public getPagerDutyConnectionData(config: ModuleConfig, _subApp: Application): ConnectionRequest {
+    public getPagerDutyConnectionData(config: ModuleConfig, _subApp: Application): ConnectionConfig {
         return {
-            name: "nexus-conn-pagerduty",
-            config: {
-                token: config.secrets.pagerDutyToken,
-                serviceDefault: config.pagerDuty.serviceDefault,
-                escalationPolicyDefault: config.pagerDuty.escalationPolicyDefault
-            }
+            token: config.secrets.pagerDutyToken,
+            serviceDefault: config.pagerDuty.serviceDefault,
+            escalationPolicyDefault: config.pagerDuty.escalationPolicyDefault
         }
     }
 
     // most modules will use at least one connection.  This will allow the user to instantiate the connections
     //  and configure them using configuration that is specific to this module.
-    public loadConnections(config: ModuleConfig, subApp: Application): ConnectionRequest[] {
-        return [
-            this.getJiraConnectionData(config, subApp),
-            this.getSlackConnectionData(config, subApp),
-            this.getPagerDutyConnectionData(config, subApp)];
+    public loadConnections(config: ModuleConfig, subApp: Application): Connection[] {
+
+        try {
+            this.jiraConnection = this.loadConnection(
+                "nexus-conn-jira",
+                createJiraConnection,
+                this.getJiraConnectionData(config, subApp)) as JiraConnection;
+
+            this.slackConnection = this.loadConnection(
+                "nexus-conn-slack",
+                createSlackConnection,
+                this.getSlackConnectionData(config, subApp)) as SlackConnection;
+
+            this.pagerDutyConnection = this.loadConnection(
+                "nexus-conn-pagerduty",
+                createPagerDutyConnection,
+                this.getPagerDutyConnectionData(config, subApp)) as PagerDutyConnection;
+
+            return [this.jiraConnection, this.slackConnection, this.pagerDutyConnection];
+
+        } catch (e) {
+            logger(`Exception thrown during connection creation: ${e.toString()}`);
+            return [];
+        }
     }
 
     public getJira(): JiraConnection {
-        return this.getActiveConnection("nexus-conn-jira") as JiraConnection;
+        return this.jiraConnection;
     }
 
     public getSlack(): SlackConnection {
-        return this.getActiveConnection("nexus-conn-slack") as SlackConnection;
+        return this.slackConnection;
     }
 
     public getPagerDuty(): PagerDutyConnection {
-        return this.getActiveConnection("nexus-conn-pagerduty") as PagerDutyConnection
+        return this.pagerDutyConnection;
     }
 }
 
