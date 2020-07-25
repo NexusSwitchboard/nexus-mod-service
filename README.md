@@ -117,13 +117,21 @@ Beyond the configuration in the nexus implementation for Slack, you will need th
 ### Slack App Permissions
 The Slack App requires the following OAuth roles to function properly:
 
-* *bot* - Required for having a bot presence that can behave as a user and be mentioned and DM'd
-* *channels:history* - Required to pull message information from a channel
-* *groups:history* - Required to pull message information from a user's private chanel
-* *im:history* - Required to pull message information from the user's DMs
-* *mpim:history* - Required to pull message information from the users' multi-person DMs
-* *users:read* - Required to pull profile information needed to connect Jira with Slack
-* *users:read.email* - Required to pull user's email needed to connect Jira with Slack
-* *users:profile:read* - Required to pull users' display_name field (the @<name>)
-* *chat:write:bot* - Required to create new message as the app bot user
-* *chat:write:user* - Required to create new messages in the name of the initiating user.
+#### Bot Token Scopes
+* channels:history - View messages and other content in public channels that DaplBot has been added to
+* chat:write - Send messages as @daplbot
+* groups:history - View messages and other content in private channels that DaplBot has been added to
+* im:history - View messages and other content in direct messages that DaplBot has been added to
+* mpim:history - View messages and other content in group direct messages that DaplBot has been added to
+* users.profile:read - View profile details about people in the workspace
+* users:read - View people in the workspace
+
+#### User Token Scopes
+
+* channels:history - View messages and other content in the user’s public channels
+* groups:history - View messages and other content in the user’s private channels
+* im:history - View messages and other content in the user’s direct messages
+* mpim:history - View messages and other content in the user’s group direct messages
+* users.profile:read - View profile details about people in the workspace
+* users:read - View people in the workspace
+* users:read.email - View email addresses of people in the workspace
