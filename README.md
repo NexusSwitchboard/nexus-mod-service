@@ -99,21 +99,29 @@ Beyond the configuration in the nexus implementation for Slack, you will need th
 
 1. Interactive Components
    1. Enable
-   2. Add Action: Callback ID is submit_infra_request
-   3. Action Name: Whatever you want
-   4. Request URL: https://<your_dmoain>/m/service/slack/interactions
-   
+   2. Request URL: https://<your_dmoain>/m/service/slack/interactions
+   3. Add Global Shortcut: Callback ID is submit_request
+   4. Add Message Shortcut: Callback ID is submit_request
+      
 2. Slash Commands
    1. Create a new slash command - you can call it whatever you want though the name will be used in the URL (below) 
-   3. Set the request URL to https://<your_domain>/m/service/slack/commands/<command_name>
+   2. Set the request URL to https://<your_domain>/m/service/slack/commands/<command_name>
    
 3. OAuth & Permissions
-   1. Scopes - See below for the scopes that you will need to add and request permission from users to apply
-   2. Bot User - Add a bot and name it whatever you want
-   3. Always Show My Bot Online - Set to "On" (but not required)
+   1. Scopes - See below for the scopes that you will need to add. Remember that these permissions will cause the app to request a "Reinstall" in the workspace since the scopes changed.
 
-4. Bot Events
-    
+4. App Home
+   1. Always Show My Bot Online - Set to "On" (but not required)
+   
+5. Event Subscriptions
+   1. Set request URL (in this case, the app has to be up and running because it will send a "challenge" to the endpoint.  If you're bot is up and running, this is handled for you automatically.
+   2. _Subscribe to bot events_: Add the following events:
+      * app_home_opened
+      * message.channels
+      * message.groups
+      * message.im
+      * message.mpim
+        
 ### Slack App Permissions
 The Slack App requires the following OAuth roles to function properly:
 
@@ -125,6 +133,7 @@ The Slack App requires the following OAuth roles to function properly:
 * mpim:history - View messages and other content in group direct messages that DaplBot has been added to
 * users.profile:read - View profile details about people in the workspace
 * users:read - View people in the workspace
+* users:read.email - View email addresses of people in the workspace
 
 #### User Token Scopes
 
@@ -134,4 +143,3 @@ The Slack App requires the following OAuth roles to function properly:
 * mpim:history - View messages and other content in the user’s group direct messages
 * users.profile:read - View profile details about people in the workspace
 * users:read - View people in the workspace
-* users:read.email - View email addresses of people in the workspace
