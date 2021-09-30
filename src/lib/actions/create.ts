@@ -253,7 +253,7 @@ export class CreateAction extends Action {
     public getRequestReplyMsgBlocks(request: ServiceRequest): SlackPayload {
 
         const infoMsg = ":information_source: Use this thread to communicate about the request.  " +
-            "Note that all of these comments will be recorded as comments on the associated Jira Ticket."
+            "Note that all of these comments will be recorded as comments on the associated Jira Ticket!!!"
 
         const description = request.ticket.fields.description ? "> " +
             ServiceRequest.getIndentedDescription(request.ticket.fields.description) : "";
