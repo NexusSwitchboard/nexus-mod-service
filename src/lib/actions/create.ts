@@ -258,6 +258,10 @@ export class CreateAction extends Action {
         const description = request.ticket.fields.description ? "> " +
             ServiceRequest.getIndentedDescription(request.ticket.fields.description) : "";
 
+        const summary = request.ticket.fields.summary
+
+        const fullText = summary.concat(" ", description)
+
         const blocks: any = [{
             type: "section",
             block_id: "request_description",
@@ -297,6 +301,17 @@ export class CreateAction extends Action {
                 text: {
                     type: "mrkdwn",
                     text: infoMsg
+                }
+            })
+        }
+
+        let pattern = /kittens/gi;
+        if (fullText.search(pattern) != -1 ) {
+            blocks.push({
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "Like kittens ? Here we go: \n https://www.shutterstock.com/image-photo/british-shorthair-kitten-silver-color-on-1510641728"
                 }
             })
         }
