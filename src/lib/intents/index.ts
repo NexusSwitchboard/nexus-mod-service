@@ -84,7 +84,10 @@ export interface ISlackIntentConfig {
     conversationRestriction: "primary" | "originating",
 
     // The username of the bot associated with the slack app.
-    botUsername: string
+    botUsername: string,
+
+    // Autorespond settings
+    autoRespondRules: any[]
 }
 
 export interface IIntentConfig {

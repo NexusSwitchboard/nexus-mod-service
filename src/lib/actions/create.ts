@@ -9,6 +9,7 @@ import {Action} from "./index";
 import {prepTitleAndDescription} from "../util";
 import moduleInstance from "../../index";
 import {SlackMessageId} from "../slack/slackMessageId";
+import {autoRespondRules} from "../config";
 
 
 /**
@@ -253,14 +254,14 @@ export class CreateAction extends Action {
     public getRequestReplyMsgBlocks(request: ServiceRequest): SlackPayload {
 
         const infoMsg = ":information_source: Use this thread to communicate about the request.  " +
-            "Note that all of these comments will be recorded as comments on the associated Jira Ticket!!!"
+            "Note that all of these comments will be recorded as comments on the associated Jira Ticket."
 
         const description = request.ticket.fields.description ? "> " +
             ServiceRequest.getIndentedDescription(request.ticket.fields.description) : "";
 
-        const summary = request.ticket.fields.summary
-
-        const fullText = summary.concat(" ", description)
+        const requesterName = request.triggerActionUser.realName;
+        const summary = request.ticket.fields.summary;
+        const fullText = summary.concat(" ", description);
 
         const blocks: any = [{
             type: "section",
@@ -305,15 +306,25 @@ export class CreateAction extends Action {
             })
         }
 
-        let pattern = /kittens/gi;
-        if (fullText.search(pattern) != -1 ) {
-            blocks.push({
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: "Like kittens ? Here we go: \n https://www.shutterstock.com/image-photo/british-shorthair-kitten-silver-color-on-1510641728"
+        // enrich message with autorespond text if we have autoRespondRules defined
+        if (autoRespondRules) {
+            for ( let item in autoRespondRules ) {
+                if (autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex) != -1) {
+                    blocks.push({
+                        type: "divider"
+                        },
+                        {
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
+                        }
+                    })
+                    console.log("INTENT:" + this.intent)
+                    console.log("INTENT-CFG:" + this.intent.config)
+                    console.log("SLACK-INT" + this.intent.getSlackConfig().autoRespondRules)
                 }
-            })
+            }
         }
 
         return blocks;

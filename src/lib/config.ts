@@ -324,3 +324,17 @@ export const contentConfigurationRules: IConfigGroupRule[] = [
         reason: "The emoji to use for a request that is in this state.  This must be formatted as you would format an emoji in slack (e.g. :rofl:)"
     }
 ];
+
+interface IAutoRespondRules {
+    enabled: boolean,
+    regex: RegExp,
+    respondText: string,
+    description?: string
+}
+
+export const autoRespondRules: IAutoRespondRules[] = [
+    {
+        enabled: true,
+        regex: /kittens/gi,
+        respondText: "So you like kittens ? Here we go: \n https://www.shutterstock.com/image-photo/british-shorthair-kitten-silver-color-on-1510641728"
+    }]
