@@ -9,8 +9,6 @@ import {Action} from "./index";
 import {prepTitleAndDescription} from "../util";
 import moduleInstance from "../../index";
 import {SlackMessageId} from "../slack/slackMessageId";
-import {autoRespondRules} from "../config";
-
 
 /**
  * The CreateAction will take care of the creation of a request in Jira and the subsequent initialization
@@ -259,10 +257,6 @@ export class CreateAction extends Action {
         const description = request.ticket.fields.description ? "> " +
             ServiceRequest.getIndentedDescription(request.ticket.fields.description) : "";
 
-        const requesterName = request.triggerActionUser.realName;
-        const summary = request.ticket.fields.summary;
-        const fullText = summary.concat(" ", description);
-
         const blocks: any = [{
             type: "section",
             block_id: "request_description",
@@ -306,27 +300,26 @@ export class CreateAction extends Action {
             })
         }
 
-        // enrich message with autorespond text if we have autoRespondRules defined
-        if (autoRespondRules) {
+        // INFRA-5767: Enrich reply with some useful reference
+        if ( typeof this.intent.getSlackConfig().autoRespondRules != "undefined" ) {
+
+            const autoRespondRules = this.intent.getSlackConfig().autoRespondRules
+            const requesterName    = request.triggerActionUser.realName;
+            const summary          = request.ticket.fields.summary;
+            const fullText         = summary.concat(" ", description);
+
             for ( let item in autoRespondRules ) {
-                if (autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex) != -1) {
+                if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex ) != -1 ) {
                     blocks.push({
-                        type: "divider"
+                            type: "divider"
                         },
                         {
-                        type: "section",
-                        text: {
-                            type: "mrkdwn",
-                            text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
-                        }
-                    })
-                    console.log("Auto respond rules:")
-                    for (let item in this.intent.getSlackConfig().autoRespondRules ) {
-                        console.log(this.intent.getSlackConfig().autoRespondRules[item])
-                    }
-
-
-
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: `Hey, @${requesterName}! ${autoRespondRules[item].respondText}`
+                            }
+                        })
                 }
             }
         }
