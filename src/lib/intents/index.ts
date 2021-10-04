@@ -87,7 +87,7 @@ export interface ISlackIntentConfig {
     botUsername: string,
 
     // Autorespond settings
-    autoRespondRules: any[]
+    autoRespondRules?: any[] | undefined
 }
 
 export interface IIntentConfig {

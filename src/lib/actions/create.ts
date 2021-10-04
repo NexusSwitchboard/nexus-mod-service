@@ -320,9 +320,13 @@ export class CreateAction extends Action {
                             text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
                         }
                     })
-                    console.log("INTENT:" + this.intent)
-                    console.log("INTENT-CFG:" + this.intent.config)
-                    console.log("SLACK-INT" + this.intent.getSlackConfig().autoRespondRules)
+                    console.log("Auto respond rules:")
+                    for (let item in this.intent.getSlackConfig().autoRespondRules ) {
+                        console.log(this.intent.getSlackConfig().autoRespondRules[item])
+                    }
+
+
+
                 }
             }
         }
