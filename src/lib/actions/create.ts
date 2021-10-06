@@ -10,6 +10,7 @@ import {prepTitleAndDescription} from "../util";
 import moduleInstance from "../../index";
 import {SlackMessageId} from "../slack/slackMessageId";
 
+
 /**
  * The CreateAction will take care of the creation of a request in Jira and the subsequent initialization
  * of the Slack Thread that will come to represent that request in Slack.  Here's what it includes:
@@ -36,6 +37,40 @@ export class CreateAction extends Action {
         await request.addReply({
             blocks: this.getRequestReplyMsgBlocks(request)
         });
+
+        if ( typeof this.intent.getSlackConfig().autoRespondRules != "undefined" ) {
+
+            const autoRespondRules = this.intent.getSlackConfig().autoRespondRules
+            const requesterName    = request.triggerActionUser.realName;
+            const summary          = request.ticket.fields.summary;
+            const description      = request.ticket.fields.description ? "> " +
+                ServiceRequest.getIndentedDescription(request.ticket.fields.description) : "";
+            const fullText         = summary.concat(" ", description);
+
+            for ( let item in autoRespondRules ) {
+                if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex ) != -1 ) {
+                    await request.addReply({
+                        blocks: [{
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
+                            }
+                        }]
+                    });
+                    // blocks.push({
+                    //         type: "divider"
+                    //     },
+                    //     {
+                    //         type: "section",
+                    //         text: {
+                    //             type: "mrkdwn",
+                    //             text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
+                    //         }
+                    //     })
+                }
+            }
+        }
 
         //
         // POST A MESSAGE IN THE NOTIFICATION CHANNEL
@@ -301,28 +336,28 @@ export class CreateAction extends Action {
         }
 
         // INFRA-5767: Enrich reply with some useful reference
-        if ( typeof this.intent.getSlackConfig().autoRespondRules != "undefined" ) {
-
-            const autoRespondRules = this.intent.getSlackConfig().autoRespondRules
-            const requesterName    = request.triggerActionUser.realName;
-            const summary          = request.ticket.fields.summary;
-            const fullText         = summary.concat(" ", description);
-
-            for ( let item in autoRespondRules ) {
-                if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex ) != -1 ) {
-                    blocks.push({
-                            type: "divider"
-                        },
-                        {
-                            type: "section",
-                            text: {
-                                type: "mrkdwn",
-                                text: `Hey, @${requesterName}! ${autoRespondRules[item].respondText}`
-                            }
-                        })
-                }
-            }
-        }
+        // if ( typeof this.intent.getSlackConfig().autoRespondRules != "undefined" ) {
+        //
+        //     const autoRespondRules = this.intent.getSlackConfig().autoRespondRules
+        //     const requesterName    = request.triggerActionUser.realName;
+        //     const summary          = request.ticket.fields.summary;
+        //     const fullText         = summary.concat(" ", description);
+        //
+        //     for ( let item in autoRespondRules ) {
+        //         if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex ) != -1 ) {
+        //             blocks.push({
+        //                     type: "divider"
+        //                 },
+        //                 {
+        //                     type: "section",
+        //                     text: {
+        //                         type: "mrkdwn",
+        //                         text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
+        //                     }
+        //                 })
+        //         }
+        //     }
+        // }
 
         return blocks;
     }
