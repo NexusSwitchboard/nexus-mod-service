@@ -58,16 +58,7 @@ export class CreateAction extends Action {
                             }
                         }]
                     });
-                    // blocks.push({
-                    //         type: "divider"
-                    //     },
-                    //     {
-                    //         type: "section",
-                    //         text: {
-                    //             type: "mrkdwn",
-                    //             text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
-                    //         }
-                    //     })
+                    break;
                 }
             }
         }
