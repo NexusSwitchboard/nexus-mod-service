@@ -50,7 +50,7 @@ export class CreateAction extends Action {
             const fullText         = summary.concat(" ", description);
 
             for ( let item in autoRespondRules ) {
-                if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex ) != -1 ) {
+                if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex) != -1 ) {
                     await request.addReply({
                         blocks: [{
                             type: "section",
