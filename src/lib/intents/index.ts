@@ -86,7 +86,7 @@ export interface ISlackIntentConfig {
     // The username of the bot associated with the slack app.
     botUsername: string,
 
-    // INFRA-5767: Autorespond rules to parse user's request and refer to docs, FAQs and other help channels.
+    // Autorespond rules to parse user's request and refer to docs, FAQs and other help channels.
     // enabled:     either to parse rule or not.
     // regex:       regular expression to search in user's response. Both summary and description are searched
     // respondText: text to reply with.

@@ -38,13 +38,15 @@ export class CreateAction extends Action {
             blocks: this.getRequestReplyMsgBlocks(request)
         });
 
+        //
+        // Parse user's request and respond with something useful
+        //
         if ( typeof this.intent.getSlackConfig().autoRespondRules != "undefined" ) {
 
             const autoRespondRules = this.intent.getSlackConfig().autoRespondRules
             const requesterName    = request.triggerActionUser.realName;
             const summary          = request.ticket.fields.summary;
-            const description      = request.ticket.fields.description ? "> " +
-                ServiceRequest.getIndentedDescription(request.ticket.fields.description) : "";
+            const description      = request.ticket.fields.description ? request.ticket.fields.description : "";
             const fullText         = summary.concat(" ", description);
 
             for ( let item in autoRespondRules ) {
@@ -325,30 +327,6 @@ export class CreateAction extends Action {
                 }
             })
         }
-
-        // INFRA-5767: Enrich reply with some useful reference
-        // if ( typeof this.intent.getSlackConfig().autoRespondRules != "undefined" ) {
-        //
-        //     const autoRespondRules = this.intent.getSlackConfig().autoRespondRules
-        //     const requesterName    = request.triggerActionUser.realName;
-        //     const summary          = request.ticket.fields.summary;
-        //     const fullText         = summary.concat(" ", description);
-        //
-        //     for ( let item in autoRespondRules ) {
-        //         if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex ) != -1 ) {
-        //             blocks.push({
-        //                     type: "divider"
-        //                 },
-        //                 {
-        //                     type: "section",
-        //                     text: {
-        //                         type: "mrkdwn",
-        //                         text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
-        //                     }
-        //                 })
-        //         }
-        //     }
-        // }
 
         return blocks;
     }
