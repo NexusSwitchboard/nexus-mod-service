@@ -39,6 +39,33 @@ export class CreateAction extends Action {
         });
 
         //
+        // Parse user's request and respond with something useful
+        //
+        if ( typeof this.intent.getSlackConfig().autoRespondRules != "undefined" ) {
+
+            const autoRespondRules = this.intent.getSlackConfig().autoRespondRules
+            const requesterName    = request.triggerActionUser.realName;
+            const summary          = request.ticket.fields.summary;
+            const description      = request.ticket.fields.description ? request.ticket.fields.description : "";
+            const fullText         = summary.concat(" ", description);
+
+            for ( let item in autoRespondRules ) {
+                if ( autoRespondRules[item].enabled && fullText.search(autoRespondRules[item].regex) != -1 ) {
+                    await request.addReply({
+                        blocks: [{
+                            type: "section",
+                            text: {
+                                type: "mrkdwn",
+                                text: `Hey, ${requesterName}! ${autoRespondRules[item].respondText}`
+                            }
+                        }]
+                    });
+                    break;
+                }
+            }
+        }
+
+        //
         // POST A MESSAGE IN THE NOTIFICATION CHANNEL
         //      (if request came from a non-primary channel)
         //
